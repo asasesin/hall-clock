@@ -1,0 +1,116 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Wall Clock Setup</title>
+    <link rel="stylesheet" href="/assets/app.css">
+  </head>
+  <body class="setup-page">
+    <main class="setup-shell">
+      <header class="setup-header">
+        <div>
+          <p class="eyebrow">Local appliance setup</p>
+          <h1>Wall Clock Settings</h1>
+        </div>
+        <nav class="setup-nav">
+          <a href="/display">Display</a>
+          <a href="/pair">Pair</a>
+          <a href="/control">Control</a>
+        </nav>
+      </header>
+
+      <section id="tokenWarning" class="notice hidden">
+        Open this page from a paired controller or scan from <strong>/pair</strong>.
+      </section>
+
+      <section class="template-panel">
+        <div>
+          <h2>Controller pairing</h2>
+          <p>Pairing is always available from the QR page.</p>
+        </div>
+        <div class="template-actions">
+          <a class="action" href="/pair">Open pairing page</a>
+        </div>
+      </section>
+
+      <form id="setupForm" class="settings-form">
+        <label class="field">
+          <span>Device name</span>
+          <input id="deviceNameInput" name="deviceName" type="text" autocomplete="off" maxlength="60">
+        </label>
+
+        <label class="field">
+          <span>Meeting type</span>
+          <select id="meetingTypeInput" name="meetingType">
+            <option value="midweek">Midweek meeting</option>
+            <option value="weekend">Weekend meeting</option>
+          </select>
+        </label>
+
+        <label class="field">
+          <span>Automatic pre-meeting countdown</span>
+          <input id="prestartMinutesInput" name="prestartMinutes" type="number" min="1" max="30" step="1">
+        </label>
+
+        <section class="start-times-panel">
+          <div class="section-title">
+            <h2>Meeting Start Times</h2>
+            <button id="addStartBtn" class="small-button" type="button">Add start</button>
+          </div>
+          <p>Set start times for any day, including weekends. Add several rows for the same day when congregations meet at different times &mdash; the display counts down before the next start time for today.</p>
+          <div id="startsList" class="starts-list"></div>
+        </section>
+
+        <section class="template-panel">
+          <div>
+            <h2>Quick templates</h2>
+            <p>Weekend is fixed: 30 minute public talk and 60 minute Watchtower Study. Midweek can be updated weekly.</p>
+          </div>
+          <div class="template-actions">
+            <button id="weekendTemplateBtn" class="action" type="button">Use weekend template</button>
+            <button id="midweekTemplateBtn" class="action" type="button">Use midweek starter</button>
+          </div>
+        </section>
+
+        <section class="import-panel">
+          <h2>Midweek timing import</h2>
+          <label class="toggle-row">
+            <input id="autoImportInput" type="checkbox">
+            <span>Automatically pull each week's timings from WOL. Runs once per week and keeps the last schedule when offline. Save settings to apply.</span>
+          </label>
+          <p id="autoImportStatus" class="import-status">Nothing imported yet.</p>
+          <details class="manual-import">
+            <summary>Manual override</summary>
+            <div class="manual-import-body">
+              <p>For halls without internet, special weeks such as assemblies or the Memorial, or fixing a bad parse. Paste a WOL midweek program URL or timing text, then review before saving. The app only extracts part titles and minute values.</p>
+              <label class="field">
+                <span>WOL midweek URL</span>
+                <input id="midweekUrlInput" type="url" placeholder="https://wol.jw.org/en/wol/d/r1/lp-e/...">
+              </label>
+              <div class="template-actions">
+                <button id="previewMidweekUrlBtn" class="small-button" type="button">Preview URL timings</button>
+                <button id="applyMidweekUrlBtn" class="small-button" type="button">Import and save URL</button>
+              </div>
+              <textarea id="midweekTextInput" rows="8" placeholder="Opening Comments (1 min.)&#10;Spiritual Gems (10 min.)&#10;Bible Reading (4 min.)"></textarea>
+              <button id="parseMidweekBtn" class="small-button" type="button">Parse pasted timings</button>
+            </div>
+          </details>
+        </section>
+
+        <div class="section-title">
+          <h2>Meeting Parts</h2>
+          <button id="addPartBtn" class="small-button" type="button">Add part</button>
+        </div>
+        <div id="partsList" class="parts-list"></div>
+
+        <div class="form-actions">
+          <button class="action action-primary" type="submit">Save settings</button>
+          <span id="saveStatus" class="save-status"></span>
+        </div>
+      </form>
+    </main>
+    <script src="/assets/shared.js"></script>
+    <script src="/assets/setup.js"></script>
+  </body>
+</html>
