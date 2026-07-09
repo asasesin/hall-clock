@@ -8,21 +8,28 @@ BIN_DST="${APP_DIR}/hall-clock"
 UNIT_DIR="/etc/systemd/system"
 CADDY_DIR="/etc/caddy"
 
+ensure_caddy() {
+  if command -v caddy >/dev/null 2>&1 && [ -d "$CADDY_DIR" ]; then
+    return 0
+  fi
+
+  echo "Caddy not found; installing with apt..."
+  export DEBIAN_FRONTEND=noninteractive
+  apt-get update
+  apt-get install -y caddy
+}
+
 if [ ! -f "$BIN_SRC" ]; then
   echo "Missing binary at $BIN_SRC"
   echo "Build and copy it first, or pass the binary path: sudo ./install.sh /path/to/hall-clock"
   exit 1
 fi
 
-if [ ! -d "$CADDY_DIR" ]; then
-  echo "Missing $CADDY_DIR"
-  echo "Install Caddy before running this installer."
-  exit 1
-fi
+ensure_caddy
 
 if ! systemctl list-unit-files caddy.service >/dev/null 2>&1; then
   echo "Caddy service not found."
-  echo "Install and enable Caddy before running this installer."
+  echo "Caddy installed but no systemd service was found."
   exit 1
 fi
 

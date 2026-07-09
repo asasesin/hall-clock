@@ -13,7 +13,6 @@ boot.
 
 - Raspberry Pi OS with desktop
 - Chromium installed
-- Caddy installed
 - Wi-Fi or Ethernet connected to the same network as controller phones
 - Hostname set to `hallclock` for `http://hallclock.local`
 
@@ -51,6 +50,7 @@ The installer:
 
 - installs `/opt/hall-clock/hall-clock`
 - creates `/etc/hall-clock/config.json` on first run
+- installs `caddy` with `apt` when missing
 - installs `hall-clock.service`
 - installs `hall-clock-kiosk.service`
 - installs `/etc/caddy/Caddyfile`
@@ -58,7 +58,6 @@ The installer:
 - runs the Go app on a Unix socket behind Caddy on port `80` (see "Zero-port
   Unix socket")
 - adds the `caddy` user to the `pi` group so Caddy can reach that socket
-- requires Caddy to be installed before deployment
 - serves plain HTTP for `hallclock.local` so bring-your-own phones never hit a
   certificate warning (see "Why not HTTPS?" below)
 
