@@ -96,7 +96,7 @@ func newServer(configPath string) (*server, error) {
 		}
 	}
 	if err := saveConfig(configPath, config); err != nil {
-		return nil, err
+		log.Printf("config: could not persist startup config to %s: %v", configPath, err)
 	}
 
 	now := time.Now()

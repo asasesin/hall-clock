@@ -71,6 +71,28 @@ func TestNewServerBootsWithCorruptConfig(t *testing.T) {
 	}
 }
 
+func TestNewServerBootsWhenStartupConfigCannotBeSaved(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.json")
+	if err := os.Chmod(dir, 0o500); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() {
+		_ = os.Chmod(dir, 0o700)
+	})
+
+	srv, err := newServer(path)
+	if err != nil {
+		t.Fatalf("newServer must boot even when startup config cannot be saved: %v", err)
+	}
+	if srv.config.ControlToken == "" {
+		t.Fatal("expected an in-memory control token")
+	}
+	if len(srv.config.Schedule) == 0 {
+		t.Fatal("expected default schedule in memory")
+	}
+}
+
 // os.WriteFile truncates the target before writing. Any crash in that window
 // leaves an empty config. Writing to a temp file and renaming means the real
 // file is only ever replaced by a complete one.

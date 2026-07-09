@@ -55,6 +55,10 @@ if id caddy >/dev/null 2>&1; then
 fi
 
 systemctl daemon-reload
+# Clean up units and kiosk state from the pre-rename wall-clock install. Leaving
+# the old Chromium kiosk running can fill /home with browser metrics/cache data.
+systemctl disable --now wall-clock.service wall-clock-kiosk.service 2>/dev/null || true
+rm -rf /home/pi/.config/wall-clock-kiosk
 systemctl enable hall-clock.service
 systemctl enable hall-clock-kiosk.service
 systemctl enable hall-clock-update.timer
