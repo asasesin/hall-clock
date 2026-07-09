@@ -972,6 +972,10 @@ textarea {
   font-size: 14px;
 }
 
+.save-status.error {
+  color: var(--red);
+}
+
 .parts-list {
   display: grid;
   gap: 8px;

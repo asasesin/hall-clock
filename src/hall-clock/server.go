@@ -32,6 +32,11 @@ type server struct {
 	// the copy embedded in the binary. Used for local development so edits
 	// show up on refresh without a rebuild; nil in production.
 	webAssets fs.FS
+	// Self-update plumbing: the app writes updateTriggerPath to ask the
+	// root-owned updater to run, and reads back updateStatusPath. See update.go.
+	updateTriggerPath string
+	updateStatusPath  string
+	updates           *updateChecker
 }
 
 const currentConfigVersion = 1
@@ -121,10 +126,13 @@ func newServer(configPath string) (*server, error) {
 			Schedule:                 activeSchedule,
 			Now:                      now,
 		},
-		talks:       activeSchedule,
-		remainingAt: first.Duration,
-		subscribers: map[chan State]struct{}{},
-		clock:       time.Now,
+		talks:             activeSchedule,
+		remainingAt:       first.Duration,
+		subscribers:       map[chan State]struct{}{},
+		clock:             time.Now,
+		updateTriggerPath: defaultUpdateTriggerPath,
+		updateStatusPath:  defaultUpdateStatusPath,
+		updates:           &updateChecker{repo: defaultUpdateRepo},
 	}, nil
 }
 
@@ -157,6 +165,8 @@ func (s *server) routes(publicURL string) (*http.ServeMux, error) {
 	mux.HandleFunc("GET /events", s.handleEvents)
 	mux.HandleFunc("GET /api/state", s.handleState)
 	mux.HandleFunc("GET /api/config", s.handleConfig)
+	mux.HandleFunc("GET /api/update", s.handleUpdateInfo)
+	mux.HandleFunc("POST /api/update", s.protect(s.handleUpdateStart))
 	mux.HandleFunc("GET /api/pairing", s.handlePairing(publicURL))
 	mux.HandleFunc("POST /api/pairing/enable", s.protect(s.handleEnablePairing))
 	mux.HandleFunc("POST /api/control/start", s.protect(s.handleStart))

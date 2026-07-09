@@ -13,6 +13,11 @@ ExecStart=/opt/hall-clock/hall-clock -addr unix:/run/hall-clock/app.sock -config
 # (which includes caddy after `usermod -aG pi caddy`) traverse to the socket.
 RuntimeDirectory=hall-clock
 RuntimeDirectoryMode=0750
+# /var/lib/hall-clock holds the self-update trigger and status files. Unlike the
+# RuntimeDirectory it survives a restart, so the result of an update is still
+# readable once the new binary comes up. See update.go.
+StateDirectory=hall-clock
+StateDirectoryMode=0755
 Restart=always
 RestartSec=2
 User=pi

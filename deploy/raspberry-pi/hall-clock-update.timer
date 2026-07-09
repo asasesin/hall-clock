@@ -1,0 +1,17 @@
+[Unit]
+Description=Check for Hall Clock updates daily
+
+[Timer]
+# 4:00 AM: after the 3:00 AM midweek auto-import, and long before any meeting.
+OnCalendar=*-*-* 04:00:00
+# Halls checking in lockstep would hit the GitHub API together; spread them out.
+RandomizedDelaySec=1800
+# A Pi powered off at 4 AM checks on the next boot instead of skipping a day.
+Persistent=true
+# Checks only. Installing restarts the app, and that happens when a person asks
+# for it — from the setup page's Update button, or over ssh with
+# `systemctl start hall-clock-update.service`.
+Unit=hall-clock-update-check.service
+
+[Install]
+WantedBy=timers.target

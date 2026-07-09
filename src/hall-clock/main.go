@@ -4,6 +4,7 @@ import (
 	"embed"
 	"errors"
 	"flag"
+	"fmt"
 	"log"
 	"net"
 	"net/http"
@@ -14,17 +15,29 @@ import (
 //go:embed web
 var webFS embed.FS
 
+// version is the release tag, set at build time with
+// -ldflags "-X main.version=v1.2.3". The updater on the Pi compares it against
+// the latest GitHub release to decide whether there is anything to install.
+var version = "dev"
+
 func main() {
 	var addr string
 	var publicURL string
 	var configPath string
 	var webDir string
+	var showVersion bool
 
 	flag.StringVar(&addr, "addr", ":8480", "listen address")
 	flag.StringVar(&publicURL, "public-url", "", "controller URL for QR codes")
 	flag.StringVar(&configPath, "config", defaultConfigPath(), "path to JSON config file")
 	flag.StringVar(&webDir, "web-dir", "", "serve web assets live from this directory instead of the embedded copy (dev)")
+	flag.BoolVar(&showVersion, "version", false, "print the version and exit")
 	flag.Parse()
+
+	if showVersion {
+		fmt.Println(version)
+		return
+	}
 
 	srv, err := newServer(configPath)
 	if err != nil {

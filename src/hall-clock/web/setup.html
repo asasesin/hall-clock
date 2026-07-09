@@ -110,8 +110,27 @@
           <span id="saveStatus" class="save-status"></span>
         </div>
       </form>
+
+      <!-- Hidden unless the box has the updater wired up (see update.go). -->
+      <section id="updateCard" class="settings-card hidden">
+        <div class="section-title">
+          <h2>Software</h2>
+          <button id="updateCheckBtn" class="small-button" type="button">Check again</button>
+        </div>
+
+        <div class="setup-status-row">
+          <span class="status-pill" id="updateVersion">Checking...</span>
+          <span class="status-note" id="updateNote"></span>
+        </div>
+
+        <div class="form-actions">
+          <button id="updateBtn" class="action action-primary" type="button" disabled>Update</button>
+          <span id="updateStatus" class="save-status"></span>
+        </div>
+      </section>
     </main>
     <script src="/assets/shared.js"></script>
     <script src="/assets/setup.js"></script>
+    <script src="/assets/update.js"></script>
   </body>
 </html>

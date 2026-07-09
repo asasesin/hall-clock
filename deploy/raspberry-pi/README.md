@@ -29,14 +29,18 @@ Choose `System Options` -> `Hostname` -> `hallclock`, then reboot.
 From a development machine:
 
 ```sh
-GOOS=linux GOARCH=arm64 go build -o hall-clock ./src/hall-clock
+make build-pi           # arm64, into dist/
+make build-pi-armv7     # 32-bit Pi OS
 ```
 
 Copy the binary to the Pi:
 
 ```sh
-scp hall-clock pi@hallclock.local:/tmp/hall-clock
+scp dist/hall-clock-linux-arm64 pi@hallclock.local:/tmp/hall-clock
 ```
+
+This is only needed for the *first* install. After that the Pi updates itself
+from GitHub releases — see "Updates".
 
 ## Install On Pi
 
@@ -60,6 +64,128 @@ The installer:
 - adds the `caddy` user to the `pi` group so Caddy can reach that socket
 - serves plain HTTP for `hallclock.local` so bring-your-own phones never hit a
   certificate warning (see "Why not HTTPS?" below)
+- installs and enables `hall-clock-update.timer` (nightly check) and
+  `hall-clock-update.path` (Update button), plus the two update units
+  (see "Updates")
+
+## Updates
+
+**Nothing installs itself.** A Pi checks nightly whether a release is waiting and
+records the answer; installing restarts the app, and that only ever happens
+because a person asked for it. Shipping a new version still needs no ssh, VPN, or
+physical access — someone at the hall taps a button.
+
+Tag a release:
+
+```sh
+git tag v1.2.3 && git push origin v1.2.3
+```
+
+`.github/workflows/release.yml` vets, tests, cross-compiles the three Pi
+architectures (arm64, armv7, armv6), and publishes them to a GitHub Release with
+a `SHA256SUMS` file. The tag becomes the version the binary reports
+(`hall-clock -version`).
+
+### Checking (automatic, nightly)
+
+`hall-clock-update.timer` runs `hall-clock-update.sh --check` at 4:00 AM, plus a
+random delay of up to 30 minutes so halls do not all hit the GitHub API at once.
+It compares `hall-clock -version` against the latest release tag and writes the
+answer to `/var/lib/hall-clock/update-status.json`. It downloads nothing,
+installs nothing, and restarts nothing. It needs only *outbound* internet, which
+the Pi already has for the WOL auto-import.
+
+The setup page reads that file, which is how you can tell from another hall
+whether a Pi is stuck — a box whose Wi-Fi has been down for three weeks otherwise
+looks identical to one that is up to date.
+
+### Installing (only when a person asks)
+
+Two ways, both running the same `hall-clock-update.sh` as root:
+
+- the **Update button** on `/setup` (see below)
+- `sudo systemctl start hall-clock-update.service` over ssh
+
+Either way the updater:
+
+- compares `hall-clock -version` against the latest release tag, and stops if
+  they match
+- **refuses to update during a meeting.** A restart rebuilds state from config
+  with the timer reset to idle, so updating mid-meeting would blank a running
+  countdown on the projector. It checks `/api/state` and refuses if the status is
+  not `idle`.
+- downloads the binary matching this Pi's CPU (`uname -m`)
+- verifies the download against `SHA256SUMS` before installing it
+- installs by `rename()` within `/opt/hall-clock`, which is atomic — there is no
+  moment where the binary is half-written
+- keeps the old binary as `hall-clock.previous` and **rolls back** if the new
+  one fails to restart or does not answer on its socket within 15 seconds
+
+### The Update button
+
+The Software card on `/setup` shows the running version, whether a newer release
+exists, and when the check last ran. When an update is available and the timer is
+idle, tapping **Update** installs it there and then. Since nothing installs
+automatically, this is the normal way a hall gets a new version — and the only
+way for a hall on a LAN you cannot reach: talk someone through opening the setup
+page from a paired phone and tapping one button.
+
+The button is disabled while a meeting is running or paused, because installing
+restarts the app and a restart resets the countdown. Reset the timer to idle
+first. During the update the page shows `Downloading… → Restarting…`; the app
+goes away for a second or two while it restarts, and the page reconnects on its
+own and reports the result.
+
+How the button reaches root, given the app runs as `pi` with
+`NoNewPrivileges=true` (so `sudo` cannot work):
+
+- the app creates `/var/lib/hall-clock/update-requested`, a file in its own
+  `StateDirectory`
+- `hall-clock-update.path` watches for that file and starts the root-owned
+  `hall-clock-update.service`
+- the updater deletes the trigger as its first action, then reports progress by
+  writing `/var/lib/hall-clock/update-status.json`, which the app reads back
+
+That is the entire privilege boundary: the app can ask for an update, and can do
+nothing else as root. `POST /api/update` requires the pairing token; the update
+runs only when the timer is idle.
+
+`/var/lib/hall-clock` is a `StateDirectory` rather than the `RuntimeDirectory`
+used for the socket, because systemd deletes the latter on restart — which is
+precisely when the status of an update matters.
+
+Useful commands:
+
+```sh
+systemctl list-timers hall-clock-update.timer         # when it next checks
+sudo systemctl start hall-clock-update-check.service  # check now, install nothing
+sudo systemctl start hall-clock-update.service        # install now
+journalctl -u hall-clock-update.service               # what it did
+cat /var/lib/hall-clock/update-status.json            # what the setup page shows
+/opt/hall-clock/hall-clock -version                   # what is running
+```
+
+To track a fork instead of the upstream repo, set the repo in
+`/etc/hall-clock/update.env`:
+
+```sh
+REPO="your-org/your-fork"
+```
+
+To stop a hall from even checking, disable the timer:
+`sudo systemctl disable --now hall-clock-update.timer`. To take away the Update
+button's ability to install, disable the watcher:
+`sudo systemctl disable --now hall-clock-update.path`.
+
+The updater replaces only the binary. `install.sh` remains the first-time
+provisioning step — it is what writes the systemd units and the Caddyfile, so
+re-run it (or bump the units by hand) if those files change in a release.
+
+Note that the updater does **not** verify a signature, only a checksum. The
+checksum is served by GitHub over TLS alongside the binary, so it defends
+against a corrupted download, not against someone who controls the release. If
+these Pis matter enough, sign the artifacts with `cosign` or `minisign` and
+check the signature in `hall-clock-update.sh` before installing.
 
 ## Controller URL (no port)
 
