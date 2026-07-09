@@ -1437,14 +1437,9 @@ textarea {
 
 .pair-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 12px;
   margin-top: 18px;
-}
-
-/* When only "Open controller" is shown (unpaired device), let it fill the row. */
-.pair-actions.single {
-  grid-template-columns: 1fr;
 }
 
 .pair-actions .action {
