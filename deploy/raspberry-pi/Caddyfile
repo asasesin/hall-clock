@@ -1,0 +1,13 @@
+# Plain HTTP on port 80. This is the right choice for bring-your-own phones on
+# a `.local` name: no certificate warnings (there is no warning-free HTTPS on a
+# .local name), and the app advertises http://hallclock.local.
+#
+# Security here is the trusted LAN, not the transport — keep the device on an
+# isolated network and never expose it to the internet.
+# Phones use hallclock.local; the on-Pi kiosk uses localhost so the TV display
+# never depends on the Pi resolving its own .local name via mDNS.
+http://hallclock.local, http://localhost {
+	# The app listens on a Unix socket (no TCP port). Caddy connects to it as a
+	# member of the socket's group — see README "Zero-port Unix socket".
+	reverse_proxy unix//run/hall-clock/app.sock
+}

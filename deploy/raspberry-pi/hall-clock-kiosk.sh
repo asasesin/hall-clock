@@ -5,7 +5,12 @@ xset s off || true
 xset -dpms || true
 xset s noblank || true
 
-while ! curl -fsS http://127.0.0.1:8080/api/state >/dev/null 2>&1; do
+# The app listens on a Unix socket, so the kiosk reaches it through Caddy. Use
+# localhost (not hallclock.local) so the local display never depends on the Pi
+# resolving its own .local name. Waiting on this URL confirms app + Caddy are up.
+BASE_URL="http://localhost"
+
+while ! curl -fsS "$BASE_URL/api/state" >/dev/null 2>&1; do
   sleep 1
 done
 
@@ -15,7 +20,7 @@ else
   CHROMIUM=chromium
 fi
 
-PROFILE_DIR="${HOME}/.config/wall-clock-kiosk/chromium"
+PROFILE_DIR="${HOME}/.config/hall-clock-kiosk/chromium"
 mkdir -p "$PROFILE_DIR"
 
 exec "$CHROMIUM" \
@@ -27,4 +32,4 @@ exec "$CHROMIUM" \
   --disable-session-crashed-bubble \
   --check-for-update-interval=31536000 \
   --autoplay-policy=no-user-gesture-required \
-  http://127.0.0.1:8080/display
+  "$BASE_URL/display"

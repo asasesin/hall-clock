@@ -1,0 +1,27 @@
+[Unit]
+Description=Hall Clock local server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+# Listen on a Unix socket, not a TCP port: no port to conflict with anything,
+# and the app is unreachable over the network — only Caddy (which shares the
+# socket's group; see README "Zero-port Unix socket") can connect.
+ExecStart=/opt/hall-clock/hall-clock -addr unix:/run/hall-clock/app.sock -config /etc/hall-clock/config.json -public-url http://hallclock.local
+# systemd creates/cleans /run/hall-clock owned by pi:pi; 0750 lets the pi group
+# (which includes caddy after `usermod -aG pi caddy`) traverse to the socket.
+RuntimeDirectory=hall-clock
+RuntimeDirectoryMode=0750
+Restart=always
+RestartSec=2
+User=pi
+Group=pi
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectHome=read-only
+ReadWritePaths=/etc/hall-clock
+WorkingDirectory=/opt/hall-clock
+
+[Install]
+WantedBy=multi-user.target

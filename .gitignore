@@ -1,4 +1,10 @@
-/wall-clock
+# Build artifacts
+/hall-clock
 /dist/
+
+# Local runtime config (contains the control token)
 config.json
+
+# Logs and OS cruft
 *.log
+.DS_Store

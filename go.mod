@@ -1,4 +1,4 @@
-module wall-clock
+module hall-clock
 
 go 1.25
 

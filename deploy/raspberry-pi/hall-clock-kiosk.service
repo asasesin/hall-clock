@@ -1,7 +1,7 @@
 [Unit]
-Description=Wall Clock Chromium kiosk
-After=graphical.target wall-clock.service
-Wants=wall-clock.service
+Description=Hall Clock Chromium kiosk
+After=graphical.target hall-clock.service caddy.service
+Wants=hall-clock.service caddy.service
 
 [Service]
 Type=simple
@@ -9,7 +9,7 @@ User=pi
 Group=pi
 Environment=DISPLAY=:0
 Environment=XAUTHORITY=/home/pi/.Xauthority
-ExecStart=/opt/wall-clock/wall-clock-kiosk.sh
+ExecStart=/opt/hall-clock/hall-clock-kiosk.sh
 Restart=always
 RestartSec=3
 

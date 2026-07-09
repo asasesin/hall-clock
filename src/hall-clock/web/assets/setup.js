@@ -2,6 +2,7 @@
   const tokenWarning = document.getElementById("tokenWarning");
   const form = document.getElementById("setupForm");
   const deviceNameInput = document.getElementById("deviceNameInput");
+  const advertisedBaseUrlInput = document.getElementById("advertisedBaseUrlInput");
   const meetingTypeInput = document.getElementById("meetingTypeInput");
   const prestartMinutesInput = document.getElementById("prestartMinutesInput");
   const midweekUrlInput = document.getElementById("midweekUrlInput");
@@ -17,7 +18,8 @@
   async function load() {
     const response = await fetch("/api/config");
     const config = await response.json();
-    deviceNameInput.value = config.deviceName || "Wall Clock";
+    deviceNameInput.value = config.deviceName || "Hall Clock";
+    advertisedBaseUrlInput.value = config.advertisedBaseUrl || "";
     meetingTypeInput.value = config.meetingType || "midweek";
     prestartMinutesInput.value = Math.round((config.prestartSeconds || 300) / 60);
     midweekUrlInput.value = config.midweekUrl || "";
@@ -88,7 +90,7 @@
           <span>Congregation</span>
           <input data-start-field="congregation" data-index="${index}" type="text" value="${escapeAttr(start.congregation || "")}" placeholder="Optional">
         </label>
-        <button data-remove-start="${index}" class="action action-quiet-danger" type="button">Remove</button>
+        <button data-remove-start="${index}" class="row-remove" type="button" aria-label="Remove this start time">Remove</button>
       `;
       startsList.appendChild(row);
     });
@@ -119,10 +121,10 @@
           <input data-field="minutes" data-index="${index}" type="number" min="1" max="120" value="${Math.round(part.durationSeconds / 60)}">
         </label>
         <label class="field">
-          <span>Closing sec</span>
+          <span>Closing bell (sec)</span>
           <input data-field="closingSeconds" data-index="${index}" type="number" min="0" max="600" value="${part.closingSeconds}">
         </label>
-        <button data-remove="${index}" class="action action-quiet-danger" type="button">Remove</button>
+        <button data-remove="${index}" class="row-remove" type="button" aria-label="Remove ${escapeAttr(part.title)}">Remove</button>
       `;
       partsList.appendChild(row);
     });
@@ -175,10 +177,6 @@
       meetingStarts = defaultMeetingStarts("19:30");
     }
     renderStarts();
-  });
-
-  document.getElementById("weekendTemplateBtn").addEventListener("click", async () => {
-    await applyTemplate("/api/template/weekend");
   });
 
   document.getElementById("midweekTemplateBtn").addEventListener("click", async () => {
@@ -273,6 +271,7 @@
     try {
       await WallClock.postJSON("/api/config", {
         deviceName: deviceNameInput.value,
+        advertisedBaseUrl: advertisedBaseUrlInput.value,
         meetingType: meetingTypeInput.value,
         meetingStartTime: meetingStarts[0]?.time || "19:30",
         meetingStarts,

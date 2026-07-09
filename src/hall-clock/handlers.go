@@ -1,0 +1,515 @@
+package main
+
+import (
+	"context"
+	"encoding/json"
+	"net/http"
+	"strings"
+	"time"
+)
+
+func (s *server) handleState(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, s.snapshot())
+}
+
+func (s *server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	out := Config{
+		DeviceName:          s.config.DeviceName,
+		AdvertisedBaseURL:   s.config.AdvertisedBaseURL,
+		MeetingType:         meetingTypeForTime(s.clock()),
+		MeetingStartTime:    s.config.MeetingStartTime,
+		MeetingStarts:       append([]MeetingStart(nil), s.config.MeetingStarts...),
+		PrestartSeconds:     s.config.PrestartSeconds,
+		MidweekURL:          s.config.MidweekURL,
+		AutoImportMidweek:   s.config.AutoImportMidweek,
+		MidweekImportedWeek: s.config.MidweekImportedWeek,
+		Schedule:            append([]Talk(nil), s.config.Schedule...),
+	}
+	s.mu.Unlock()
+	writeJSON(w, out)
+}
+
+func (s *server) handleStart(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	if s.state.Status != StatusRunning {
+		s.startedAt = s.clock()
+		s.state.Status = StatusRunning
+	}
+	state := s.snapshotLocked()
+	s.mu.Unlock()
+
+	s.broadcast(state)
+	writeJSON(w, state)
+}
+
+func (s *server) handlePause(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	s.recalculateLocked(s.clock())
+	if s.state.Status == StatusRunning {
+		s.remainingAt = s.state.RemainingSeconds
+		s.state.Status = StatusPaused
+	}
+	state := s.snapshotLocked()
+	s.mu.Unlock()
+
+	s.broadcast(state)
+	writeJSON(w, state)
+}
+
+func (s *server) handleReset(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	s.state.Status = StatusIdle
+	s.remainingAt = s.state.DurationSeconds
+	s.state.RemainingSeconds = s.state.DurationSeconds
+	s.state.ElapsedSeconds = 0
+	s.state.OvertimeSeconds = 0
+	state := s.snapshotLocked()
+	s.mu.Unlock()
+
+	s.broadcast(state)
+	writeJSON(w, state)
+}
+
+func (s *server) handleNext(w http.ResponseWriter, r *http.Request) {
+	s.changeTalk(w, 1)
+}
+
+func (s *server) handlePrevious(w http.ResponseWriter, r *http.Request) {
+	s.changeTalk(w, -1)
+}
+
+func (s *server) handleAdjust(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		DeltaSeconds int `json:"deltaSeconds"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	s.mu.Lock()
+	s.recalculateLocked(s.clock())
+	s.state.DurationSeconds = max(60, s.state.DurationSeconds+body.DeltaSeconds)
+	s.state.RemainingSeconds = max(-3600, s.state.RemainingSeconds+body.DeltaSeconds)
+	s.remainingAt = s.state.RemainingSeconds
+	if s.state.Status == StatusRunning {
+		s.startedAt = s.clock()
+	}
+	state := s.snapshotLocked()
+	s.mu.Unlock()
+
+	s.broadcast(state)
+	writeJSON(w, state)
+}
+
+func (s *server) handleSetTime(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Seconds int `json:"seconds"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	seconds := clamp(body.Seconds, 60, 7200)
+
+	s.mu.Lock()
+	if s.state.Status != StatusIdle {
+		s.mu.Unlock()
+		http.Error(w, "time can only be edited while idle", http.StatusConflict)
+		return
+	}
+	s.state.DurationSeconds = seconds
+	s.state.RemainingSeconds = seconds
+	s.state.ElapsedSeconds = 0
+	s.state.OvertimeSeconds = 0
+	s.remainingAt = seconds
+	state := s.snapshotLocked()
+	s.mu.Unlock()
+
+	s.broadcast(state)
+	writeJSON(w, state)
+}
+
+func (s *server) handleSelect(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		TalkID int `json:"talkId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	s.mu.Lock()
+	ok := s.selectTalkLocked(body.TalkID)
+	state := s.snapshotLocked()
+	s.mu.Unlock()
+
+	if !ok {
+		http.Error(w, "talk not found", http.StatusNotFound)
+		return
+	}
+
+	s.broadcast(state)
+	writeJSON(w, state)
+}
+
+func (s *server) handleAdhocPart(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Title   string `json:"title"`
+		Seconds int    `json:"seconds"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	title := strings.TrimSpace(body.Title)
+	if title == "" {
+		title = "Additional Part"
+	}
+	seconds := clamp(body.Seconds, 60, 7200)
+
+	s.mu.Lock()
+	insertAt := len(s.talks)
+	for i, talk := range s.talks {
+		if talk.ID == s.state.CurrentTalkID {
+			insertAt = i + 1
+			break
+		}
+	}
+	nextID := 1
+	for _, talk := range s.talks {
+		nextID = max(nextID, talk.ID+1)
+	}
+	part := Talk{ID: nextID, Title: title, Duration: seconds, Closing: min(60, seconds), Temporary: true, CreatedAt: s.clock()}
+	s.talks = append(s.talks, Talk{})
+	copy(s.talks[insertAt+1:], s.talks[insertAt:])
+	s.talks[insertAt] = part
+	s.state.Schedule = s.talks
+	if s.state.Status == StatusIdle {
+		s.selectTalkLocked(part.ID)
+	}
+	state := s.snapshotLocked()
+	s.mu.Unlock()
+
+	s.broadcast(state)
+	writeJSON(w, state)
+}
+
+func (s *server) handleMovePart(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		TalkID int `json:"talkId"`
+		Delta  int `json:"delta"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if body.Delta != -1 && body.Delta != 1 {
+		http.Error(w, "delta must be -1 or 1", http.StatusBadRequest)
+		return
+	}
+
+	s.mu.Lock()
+	idx := -1
+	for i, talk := range s.talks {
+		if talk.ID == body.TalkID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		s.mu.Unlock()
+		http.Error(w, "talk not found", http.StatusNotFound)
+		return
+	}
+	if !s.talks[idx].Temporary {
+		s.mu.Unlock()
+		http.Error(w, "only temporary parts can be moved here", http.StatusConflict)
+		return
+	}
+	next := idx + body.Delta
+	if next < 0 || next >= len(s.talks) {
+		s.mu.Unlock()
+		http.Error(w, "cannot move part further", http.StatusConflict)
+		return
+	}
+	s.talks[idx], s.talks[next] = s.talks[next], s.talks[idx]
+	state := s.snapshotLocked()
+	s.mu.Unlock()
+
+	s.broadcast(state)
+	writeJSON(w, state)
+}
+
+func (s *server) handleBell(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	s.bellSeq++
+	s.state.Bell = s.bellSeq
+	state := s.snapshotLocked()
+	s.mu.Unlock()
+
+	s.broadcast(state)
+	writeJSON(w, state)
+}
+
+func (s *server) handleCircuitOverseer(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		On bool `json:"on"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	now := s.clock()
+	s.mu.Lock()
+	// CO mode reshapes the whole schedule, so only allow it while idle — a
+	// running/paused meeting would flip the flag without cleanly rebuilding.
+	if s.state.Status != StatusIdle {
+		s.mu.Unlock()
+		http.Error(w, "circuit overseer mode can only be changed while idle", http.StatusConflict)
+		return
+	}
+	// Turning it on sets a 3-hour expiry so it applies to this meeting session
+	// only; turning it off clears it.
+	if body.On {
+		s.config.CircuitOverseerExpiresAt = now.Add(circuitOverseerDuration)
+	} else {
+		s.config.CircuitOverseerExpiresAt = time.Time{}
+	}
+	s.state.CircuitOverseer = circuitOverseerActive(s.config.CircuitOverseerExpiresAt, now)
+	// Rebuild the active schedule for the new mode (swaps CO parts in/out).
+	s.applyActiveScheduleChangeLocked(now)
+	config := s.config
+	state := s.snapshotLocked()
+	s.mu.Unlock()
+
+	if err := saveConfig(s.configPath, config); err != nil {
+		http.Error(w, "could not save config", http.StatusInternalServerError)
+		return
+	}
+
+	s.broadcast(state)
+	writeJSON(w, state)
+}
+
+func (s *server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
+	var body Config
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	if len(body.Schedule) == 0 {
+		http.Error(w, "schedule cannot be empty", http.StatusBadRequest)
+		return
+	}
+
+	normalizeSchedule(body.Schedule)
+	body.DeviceName = strings.TrimSpace(body.DeviceName)
+	if body.DeviceName == "" {
+		body.DeviceName = "Hall Clock"
+	}
+	body.MeetingType = normalizeMeetingType(body.MeetingType)
+	body.MeetingStartTime = normalizeStartTime(body.MeetingStartTime)
+	body.MeetingStarts = normalizeMeetingStarts(body.MeetingStarts, body.MeetingStartTime)
+	advertisedURL, err := normalizeAdvertisedControlURL(body.AdvertisedBaseURL)
+	if err != nil {
+		http.Error(w, "invalid advertisedBaseUrl", http.StatusBadRequest)
+		return
+	}
+	if body.PrestartSeconds == 0 {
+		body.PrestartSeconds = 300
+	}
+	body.PrestartSeconds = clamp(body.PrestartSeconds, 60, 1800)
+
+	s.mu.Lock()
+	s.config.DeviceName = body.DeviceName
+	s.config.AdvertisedBaseURL = advertisedURL
+	s.config.MeetingType = body.MeetingType
+	s.config.MeetingStartTime = body.MeetingStartTime
+	s.config.MeetingStarts = body.MeetingStarts
+	s.config.PrestartSeconds = body.PrestartSeconds
+	s.config.MidweekURL = strings.TrimSpace(body.MidweekURL)
+	s.config.AutoImportMidweek = body.AutoImportMidweek
+	s.config.Schedule = body.Schedule
+	s.state.DeviceName = body.DeviceName
+	s.state.MeetingType = body.MeetingType
+	s.state.MeetingStartTime = body.MeetingStartTime
+	s.state.MeetingStarts = body.MeetingStarts
+	s.state.PrestartLabel = ""
+	s.state.PrestartSeconds = body.PrestartSeconds
+	s.applyActiveScheduleChangeLocked(s.clock())
+	config := s.config
+	state := s.snapshotLocked()
+	s.mu.Unlock()
+
+	if err := saveConfig(s.configPath, config); err != nil {
+		http.Error(w, "could not save config", http.StatusInternalServerError)
+		return
+	}
+
+	s.broadcast(state)
+	writeJSON(w, state)
+
+	now := s.clock()
+	if shouldAutoImportNow(now, config.AutoImportMidweek, config.MidweekImportedWeek) {
+		go s.autoImportTick(context.Background(), now)
+	}
+}
+
+func (s *server) handleImportMidweek(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		URL   string `json:"url"`
+		Apply bool   `json:"apply"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	sourceURL := strings.TrimSpace(body.URL)
+	if sourceURL == "" {
+		http.Error(w, "midweek URL is required", http.StatusBadRequest)
+		return
+	}
+
+	schedule, err := importMidweekFromURL(r.Context(), sourceURL)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if !body.Apply {
+		writeJSON(w, map[string]any{
+			"meetingType": "midweek",
+			"sourceUrl":   sourceURL,
+			"schedule":    schedule,
+		})
+		return
+	}
+
+	s.mu.Lock()
+	s.config.MeetingType = "midweek"
+	s.config.MidweekURL = sourceURL
+	s.config.MidweekImportedWeek = isoWeekString(s.clock())
+	s.config.Schedule = schedule
+	s.applyActiveScheduleChangeLocked(s.clock())
+	config := s.config
+	state := s.snapshotLocked()
+	s.mu.Unlock()
+
+	if err := saveConfig(s.configPath, config); err != nil {
+		http.Error(w, "could not save imported schedule", http.StatusInternalServerError)
+		return
+	}
+
+	s.broadcast(state)
+	writeJSON(w, setupResponse(state, config))
+}
+
+func (s *server) handleImportMidweekText(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Text  string `json:"text"`
+		Apply bool   `json:"apply"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	schedule, err := parseMidweekTimings(body.Text)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+
+	if !body.Apply {
+		writeJSON(w, map[string]any{
+			"meetingType": "midweek",
+			"schedule":    schedule,
+		})
+		return
+	}
+
+	s.mu.Lock()
+	s.config.MeetingType = "midweek"
+	s.config.MidweekImportedWeek = isoWeekString(s.clock())
+	s.config.Schedule = schedule
+	s.applyActiveScheduleChangeLocked(s.clock())
+	config := s.config
+	state := s.snapshotLocked()
+	s.mu.Unlock()
+
+	if err := saveConfig(s.configPath, config); err != nil {
+		http.Error(w, "could not save imported schedule", http.StatusInternalServerError)
+		return
+	}
+
+	s.broadcast(state)
+	writeJSON(w, setupResponse(state, config))
+}
+
+// setupResponse reshapes a state snapshot for the setup page: it carries the
+// saved (editable) schedule and meeting type instead of the runtime ones,
+// which on weekends resolve to the fixed weekend template. Without this, the
+// setup editor would load the weekend parts and a subsequent Save would
+// overwrite the saved midweek schedule with them.
+func setupResponse(state State, config Config) State {
+	state.MeetingType = config.MeetingType
+	state.Schedule = append([]Talk(nil), config.Schedule...)
+	return state
+}
+
+func (s *server) handleWeekendTemplate(w http.ResponseWriter, r *http.Request) {
+	s.applyTemplate(w, "weekend", weekendSchedule())
+}
+
+func (s *server) handleMidweekTemplate(w http.ResponseWriter, r *http.Request) {
+	s.applyTemplate(w, "midweek", defaultSchedule())
+}
+
+func (s *server) applyTemplate(w http.ResponseWriter, meetingType string, schedule []Talk) {
+	normalizeSchedule(schedule)
+
+	s.mu.Lock()
+	s.config.MeetingType = meetingType
+	if meetingType == "weekend" && !hasWeekendStart(s.config.MeetingStarts) {
+		starts := append(s.config.MeetingStarts, MeetingStart{Day: int(time.Sunday), Time: "10:00"})
+		s.config.MeetingStarts = normalizeMeetingStarts(starts, s.config.MeetingStartTime)
+		s.state.MeetingStarts = s.config.MeetingStarts
+	}
+	if meetingType == "midweek" {
+		s.config.Schedule = schedule
+	}
+	s.applyActiveScheduleChangeLocked(s.clock())
+	config := s.config
+	state := s.snapshotLocked()
+	s.mu.Unlock()
+
+	if err := saveConfig(s.configPath, config); err != nil {
+		http.Error(w, "could not save template", http.StatusInternalServerError)
+		return
+	}
+
+	s.broadcast(state)
+	writeJSON(w, setupResponse(state, config))
+}
+
+func (s *server) changeTalk(w http.ResponseWriter, delta int) {
+	s.mu.Lock()
+	idx := 0
+	for i, talk := range s.talks {
+		if talk.ID == s.state.CurrentTalkID {
+			idx = i
+			break
+		}
+	}
+	next := (idx + delta + len(s.talks)) % len(s.talks)
+	s.selectTalkLocked(s.talks[next].ID)
+	state := s.snapshotLocked()
+	s.mu.Unlock()
+
+	s.broadcast(state)
+	writeJSON(w, state)
+}

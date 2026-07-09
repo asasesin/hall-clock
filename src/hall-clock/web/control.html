@@ -1,0 +1,94 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Hall Clock Control</title>
+    <link rel="stylesheet" href="/assets/app.css">
+  </head>
+  <body class="control-page">
+    <main class="phone-shell">
+      <section id="tokenWarning" class="notice hidden">
+        Pair this phone from <strong>/pair</strong> before controlling the timer.
+      </section>
+
+      <section class="compact-timer">
+        <div class="timer-meta">
+          <div>
+            <p id="partPosition" class="card-eyebrow">Schedule</p>
+            <p id="meetingType" class="meeting-chip">Midweek meeting</p>
+          </div>
+          <span id="statusBadge" class="status-badge">Idle</span>
+        </div>
+        <div id="timeValue" class="control-time">00:00</div>
+        <p id="nextPart" class="card-next"></p>
+      </section>
+
+      <section class="control-panel">
+        <div class="control-actions">
+          <div class="primary-action-row">
+            <button id="startBtn" class="action action-primary" type="button">Start</button>
+          </div>
+
+          <div class="secondary-action-row">
+            <button id="bellBtn" class="action action-subtle" type="button">Bell</button>
+            <button id="resetBtn" class="action action-quiet-danger" type="button">Reset</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="timingPanel" class="tab-panel">
+        <div class="button-grid compact-actions" aria-label="Adjust remaining time">
+          <button data-adjust="-60" class="action adjust-action" type="button" aria-label="Subtract 1 minute">
+            <span class="adjust-symbol">-</span>
+            <span class="adjust-label">1 min</span>
+          </button>
+          <button data-adjust="60" class="action adjust-action" type="button" aria-label="Add 1 minute">
+            <span class="adjust-symbol">+</span>
+            <span class="adjust-label">1 min</span>
+          </button>
+        </div>
+      </section>
+
+      <section id="partsPanel" class="tab-panel">
+        <div class="co-row">
+          <div class="co-row-text">
+            <span class="co-row-label">Circuit overseer visit</span>
+            <span class="co-row-hint" id="coHint">Swaps in the CO visit schedule for 3 hours</span>
+          </div>
+          <button id="coToggle" class="co-toggle" type="button" role="switch" aria-checked="false" aria-label="Circuit overseer visit" title="Swap in the circuit overseer visit schedule">
+            <span class="co-toggle-track"><span class="co-toggle-thumb"></span></span>
+          </button>
+        </div>
+        <button id="partPickerBtn" class="part-picker-button" type="button" aria-expanded="false" aria-controls="partPickerList">
+          <span id="currentPartTitle">Select part</span>
+          <span id="currentPartDuration" class="part-duration"></span>
+        </button>
+        <div id="partPickerList" class="part-picker-list hidden"></div>
+        <button id="adhocPartBtn" class="temporary-part-button" type="button" aria-expanded="false" aria-controls="adhocPartPanel">
+          Add temporary part
+        </button>
+        <form id="adhocPartPanel" class="adhoc-part-panel hidden">
+          <label class="temporary-part-title">
+            <span>Title</span>
+            <input id="adhocPartTitleInput" type="text" maxlength="80" placeholder="Additional Part">
+          </label>
+          <label>
+            <span>Min</span>
+            <input id="adhocPartMinutesInput" type="number" min="1" max="120" inputmode="numeric" value="5">
+          </label>
+          <button id="saveAdhocPartBtn" class="small-button" type="submit">Add</button>
+          <button id="cancelAdhocPartBtn" class="small-button" type="button">Cancel</button>
+        </form>
+      </section>
+
+      <footer class="controller-admin">
+        <a href="/pair">Pair device</a>
+        <span aria-hidden="true">·</span>
+        <a href="/setup">Setup</a>
+      </footer>
+    </main>
+    <script src="/assets/shared.js"></script>
+    <script src="/assets/control.js"></script>
+  </body>
+</html>

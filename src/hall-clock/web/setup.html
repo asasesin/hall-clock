@@ -3,7 +3,7 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Wall Clock Setup</title>
+    <title>Hall Clock Setup</title>
     <link rel="stylesheet" href="/assets/app.css">
   </head>
   <body class="setup-page">
@@ -11,7 +11,7 @@
       <header class="setup-header">
         <div>
           <p class="eyebrow">Local appliance setup</p>
-          <h1>Wall Clock Settings</h1>
+          <h1>Hall Clock Settings</h1>
         </div>
         <nav class="setup-nav">
           <a href="/display">Display</a>
@@ -40,17 +40,28 @@
           <input id="deviceNameInput" name="deviceName" type="text" autocomplete="off" maxlength="60">
         </label>
 
+        <details class="advanced-field">
+          <summary>Advanced: controller URL override</summary>
+          <label class="field">
+            <span>Advertised controller URL</span>
+            <input id="advertisedBaseUrlInput" name="advertisedBaseUrl" type="url" placeholder="http://hallclock.local">
+            <span class="field-hint">Leave blank. The address is set by the server (its <code>-public-url</code> flag or the reverse proxy). Only fill this in to override a wrong QR/pairing link.</span>
+          </label>
+        </details>
+
         <label class="field">
-          <span>Meeting type</span>
-          <select id="meetingTypeInput" name="meetingType">
+          <span>Automatic schedule</span>
+          <select id="meetingTypeInput" name="meetingType" disabled>
             <option value="midweek">Midweek meeting</option>
             <option value="weekend">Weekend meeting</option>
           </select>
+          <span class="field-hint">Set automatically &mdash; weekend on Saturday and Sunday, midweek on other days.</span>
         </label>
 
         <label class="field">
-          <span>Automatic pre-meeting countdown</span>
+          <span>Automatic pre-meeting countdown (minutes)</span>
           <input id="prestartMinutesInput" name="prestartMinutes" type="number" min="1" max="30" step="1">
+          <span class="field-hint">How long the display counts down before each meeting start time.</span>
         </label>
 
         <section class="start-times-panel">
@@ -65,10 +76,9 @@
         <section class="template-panel">
           <div>
             <h2>Quick templates</h2>
-            <p>Weekend is fixed: 30 minute public talk and 60 minute Watchtower Study. Midweek can be updated weekly.</p>
+            <p>Weekend switches automatically on Saturday and Sunday. Use the starter only to reset the saved midweek schedule.</p>
           </div>
           <div class="template-actions">
-            <button id="weekendTemplateBtn" class="action" type="button">Use weekend template</button>
             <button id="midweekTemplateBtn" class="action" type="button">Use midweek starter</button>
           </div>
         </section>

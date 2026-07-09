@@ -14,6 +14,35 @@
     return localStorage.getItem(TOKEN_KEY) || "";
   }
 
+  // ensureToken returns a control token, auto-pairing from the open
+  // /api/pairing endpoint when this browser doesn't have one yet. This lets a
+  // printed QR point at a plain, tokenless URL (e.g. http://hallclock.local/
+  // control) and have the page pair itself on first load. Pairing is
+  // intentionally open on the LAN, so this grants no access the network did
+  // not already allow.
+  async function ensureToken() {
+    const existing = getToken();
+    if (existing) {
+      return existing;
+    }
+    try {
+      const response = await fetch("/api/pairing");
+      if (!response.ok) {
+        return "";
+      }
+      const pairing = await response.json();
+      const url = new URL(pairing.controlUrl, window.location.href);
+      const token = url.searchParams.get("token") || "";
+      if (token) {
+        localStorage.setItem(TOKEN_KEY, token);
+      }
+      return token;
+    } catch (error) {
+      console.error(error);
+      return "";
+    }
+  }
+
   async function postJSON(path, body) {
     const response = await fetch(path, {
       method: "POST",
@@ -84,6 +113,7 @@
 
   window.WallClock = {
     getToken,
+    ensureToken,
     postJSON,
     subscribe,
     formatTime,
