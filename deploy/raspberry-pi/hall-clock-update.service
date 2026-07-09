@@ -1,0 +1,11 @@
+[Unit]
+Description=Install a Hall Clock update
+After=network-online.target hall-clock.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# Runs as root: replaces the binary in /opt/hall-clock and restarts the unit.
+# Started by a person, never by the timer — from the setup page's Update button
+# (via hall-clock-update.path) or by hand over ssh.
+ExecStart=/opt/hall-clock/hall-clock-update.sh

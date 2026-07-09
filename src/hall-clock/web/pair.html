@@ -1,0 +1,100 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Pair Hall Clock</title>
+    <link rel="stylesheet" href="/assets/app.css">
+  </head>
+  <body class="pair-page">
+    <main class="pair-shell">
+      <section class="pair-card">
+        <p class="eyebrow">Controller pairing</p>
+        <h1>Pair a controller</h1>
+        <p class="pair-lead">Scan the code or use the link below to open the phone controller.</p>
+        <section id="pairError" class="notice hidden">
+          Could not load the controller link. Check that the wall clock server is running.
+        </section>
+        <div class="pair-visual">
+          <img id="qrImage" class="qr hidden" alt="QR code for the phone controller">
+        </div>
+        <div class="pair-link-row">
+          <p class="pair-url" id="pairUrl">Loading controller link...</p>
+          <button id="copyLinkBtn" class="small-button pair-copy-button" type="button">Copy link</button>
+        </div>
+        <div class="pair-actions" id="pairActions">
+          <a id="controlLink" class="action action-primary" href="/control">Open controller</a>
+          <a id="returnControlLink" class="action action-subtle" href="/control">Return to controller</a>
+        </div>
+      </section>
+    </main>
+    <script>
+      const pairUrlEl = document.getElementById("pairUrl");
+      const controlLinkEl = document.getElementById("controlLink");
+      const copyLinkBtn = document.getElementById("copyLinkBtn");
+
+      // "Open controller" carries the pairing token (it pairs this device).
+      // "Return to controller" is a plain link back and only makes sense once
+      // this browser is already paired — on a fresh device it would just bounce
+      // back to this pairing prompt. So show it only when a token already
+      // exists, and let "Open controller" fill the row otherwise.
+      // (Key mirrors shared.js TOKEN_KEY; pair.html doesn't load shared.js.)
+      const returnControlLink = document.getElementById("returnControlLink");
+      const pairActions = document.getElementById("pairActions");
+      if (!localStorage.getItem("wallClockControlToken")) {
+        returnControlLink.classList.add("hidden");
+        pairActions.classList.add("single");
+      }
+
+      // navigator.clipboard only exists in a secure context. The pairing page
+      // is normally served over plain HTTP on a LAN IP, where it is undefined,
+      // so fall back to a temporary selection + execCommand("copy").
+      async function copyText(text) {
+        if (navigator.clipboard && window.isSecureContext) {
+          await navigator.clipboard.writeText(text);
+          return;
+        }
+        const scratch = document.createElement("textarea");
+        scratch.value = text;
+        scratch.setAttribute("readonly", "");
+        scratch.style.position = "fixed";
+        scratch.style.opacity = "0";
+        document.body.appendChild(scratch);
+        scratch.select();
+        scratch.setSelectionRange(0, text.length);
+        const ok = document.execCommand("copy");
+        document.body.removeChild(scratch);
+        if (!ok) throw new Error("copy command rejected");
+      }
+
+      fetch("/api/pairing")
+        .then((response) => {
+          if (!response.ok) throw new Error("pairing unavailable");
+          return response.json();
+        })
+        .then((pairing) => {
+          document.getElementById("qrImage").src = "/qr.png?t=" + Date.now();
+          document.getElementById("qrImage").classList.remove("hidden");
+          pairUrlEl.textContent = pairing.controlUrl;
+          controlLinkEl.href = pairing.controlUrl;
+          copyLinkBtn.addEventListener("click", async () => {
+            try {
+              await copyText(pairing.controlUrl);
+              copyLinkBtn.textContent = "Copied";
+            } catch {
+              copyLinkBtn.textContent = "Copy failed";
+            }
+            setTimeout(() => {
+              copyLinkBtn.textContent = "Copy link";
+            }, 1500);
+          });
+        })
+        .catch(() => {
+          document.getElementById("pairError").classList.remove("hidden");
+          pairUrlEl.textContent = "Controller link unavailable.";
+          document.getElementById("controlLink").classList.add("hidden");
+          copyLinkBtn.classList.add("hidden");
+        });
+    </script>
+  </body>
+</html>

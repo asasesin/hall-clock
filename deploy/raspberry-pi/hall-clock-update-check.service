@@ -1,0 +1,10 @@
+[Unit]
+Description=Check whether a Hall Clock update is available
+After=network-online.target hall-clock.service
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# --check installs nothing. It records the answer for the setup page, so an
+# operator can see "v1.2.3 available" and choose to install it.
+ExecStart=/opt/hall-clock/hall-clock-update.sh --check

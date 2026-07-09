@@ -1,0 +1,136 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Hall Clock Setup</title>
+    <link rel="stylesheet" href="/assets/app.css">
+  </head>
+  <body class="setup-page">
+    <main class="setup-shell">
+      <header class="setup-header">
+        <div class="setup-header-copy">
+          <h1>Hall Clock Settings</h1>
+        </div>
+        <nav class="setup-nav">
+          <a href="/display">Display</a>
+          <a href="/pair">Pair</a>
+          <a href="/control">Control</a>
+        </nav>
+      </header>
+
+      <section id="tokenWarning" class="notice hidden">
+        Open this page from a paired controller or scan from <strong>/pair</strong>.
+      </section>
+
+      <form id="setupForm" class="settings-form">
+        <section class="settings-card">
+          <div class="section-title">
+            <h2>Basics</h2>
+          </div>
+
+          <div class="settings-grid-two">
+            <label class="field">
+              <span>Device name</span>
+              <input id="deviceNameInput" name="deviceName" type="text" autocomplete="off" maxlength="60">
+            </label>
+
+            <label class="field">
+              <span>Automatic pre-meeting countdown (minutes)</span>
+              <input id="prestartMinutesInput" name="prestartMinutes" type="number" min="1" max="30" step="1">
+            </label>
+          </div>
+
+          <div class="setup-status-row">
+            <span class="status-pill" id="scheduleModeText">Midweek meeting is active today</span>
+            <span class="status-note" id="scheduleModeInline">Weekend switches automatically on Saturday and Sunday.</span>
+          </div>
+
+          <details class="advanced-field">
+            <summary>Controller URL override</summary>
+            <label class="field">
+              <span>Advertised controller URL</span>
+              <input id="advertisedBaseUrlInput" name="advertisedBaseUrl" type="url" placeholder="http://hallclock.local">
+              <span class="field-hint">Usually leave blank.</span>
+            </label>
+          </details>
+
+          <select id="meetingTypeInput" name="meetingType" class="visually-hidden" disabled>
+            <option value="midweek">Midweek meeting</option>
+            <option value="weekend">Weekend meeting</option>
+          </select>
+        </section>
+
+        <section class="start-times-panel settings-card">
+          <div class="section-title">
+            <h2>Meeting start times</h2>
+            <button id="addStartBtn" class="small-button" type="button">Add start</button>
+          </div>
+          <div id="startsList" class="starts-list"></div>
+        </section>
+
+        <section class="import-panel settings-card">
+          <div class="section-title">
+            <h2>Midweek import</h2>
+          </div>
+          <label class="toggle-row">
+            <input id="autoImportInput" type="checkbox">
+            <span>Automatically import each week’s timings from WOL.</span>
+          </label>
+          <p class="field-hint">For shared halls, add the congregation’s WOL midweek URL on its start time row. The importer keeps that language/library for that congregation.</p>
+          <p id="autoImportStatus" class="import-status">Nothing imported yet.</p>
+          <details class="manual-import">
+            <summary>Manual fallback</summary>
+            <div class="manual-import-body">
+              <p>Use this only for special weeks, offline halls, or correcting a bad import.</p>
+              <label class="field">
+                <span>WOL midweek URL</span>
+                <input id="midweekUrlInput" type="url" placeholder="https://wol.jw.org/en/wol/d/r1/lp-e/...">
+              </label>
+              <div class="template-actions">
+                <button id="previewMidweekUrlBtn" class="small-button" type="button">Preview imported timings</button>
+                <button id="applyMidweekUrlBtn" class="small-button" type="button">Import URL now</button>
+              </div>
+              <textarea id="midweekTextInput" rows="8" placeholder="Opening Comments (1 min.)&#10;Spiritual Gems (10 min.)&#10;Bible Reading (4 min.)"></textarea>
+              <button id="parseMidweekBtn" class="small-button" type="button">Preview pasted timings</button>
+            </div>
+          </details>
+        </section>
+
+        <section class="settings-card">
+          <div class="section-title">
+            <h2>Meeting parts</h2>
+            <button id="addPartBtn" class="small-button" type="button">Add part</button>
+          </div>
+          <div id="partsList" class="parts-list"></div>
+        </section>
+
+        <div class="form-actions">
+          <button class="action action-primary" type="submit">Save settings</button>
+          <span id="saveStatus" class="save-status"></span>
+        </div>
+      </form>
+
+      <!-- Hidden unless the box has the updater wired up (see update.go). -->
+      <section id="updateCard" class="settings-card hidden">
+        <div class="section-title">
+          <h2>Software</h2>
+          <button id="updateCheckBtn" class="small-button" type="button">Check again</button>
+        </div>
+
+        <div class="setup-status-row">
+          <span class="status-pill" id="updateVersion">Checking...</span>
+          <span class="status-note" id="updateNote"></span>
+        </div>
+
+        <div class="form-actions">
+          <button id="updateBtn" class="action action-primary" type="button" disabled>Update</button>
+          <span id="updateStatus" class="save-status"></span>
+        </div>
+      </section>
+    </main>
+    <script src="/assets/shared.js"></script>
+    <script src="/assets/setup.js"></script>
+    <script src="/assets/update.js"></script>
+  </body>
+</html>

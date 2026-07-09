@@ -1,0 +1,76 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          # merge-base needs history, and the tag ref alone does not carry it.
+          fetch-depth: 0
+
+      # A release is what every Pi installs, and releases/latest knows nothing
+      # about branches: a tag on a side branch would ship code that is not on
+      # main, from a commit that a later rebase can make unreachable. Fail here,
+      # before anything is built or published.
+      - name: Refuse to release a commit that is not on main
+        run: |
+          set -euo pipefail
+          git fetch --no-tags --quiet origin +refs/heads/main:refs/remotes/origin/main
+          if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+            echo "::error::Tag ${GITHUB_REF_NAME} points at ${GITHUB_SHA}, which is not on main."
+            echo "Merge to main first, then tag the merged commit."
+            exit 1
+          fi
+          echo "${GITHUB_REF_NAME} is on main."
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: "1.25"
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test (race)
+        run: go test -race ./...
+
+      # The tag is the version the running binary reports, and the updater on
+      # the Pi compares it against the latest release tag to decide whether to
+      # install anything. They must match exactly.
+      - name: Build Pi binaries
+        env:
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          LDFLAGS="-s -w -X main.version=${VERSION}"
+          GOOS=linux GOARCH=arm64 go build -ldflags "$LDFLAGS" \
+            -o dist/hall-clock-linux-arm64 ./src/hall-clock
+          GOOS=linux GOARCH=arm GOARM=7 go build -ldflags "$LDFLAGS" \
+            -o dist/hall-clock-linux-armv7 ./src/hall-clock
+          # Pi Zero / Pi 1: the armv7 build SIGILLs on an ARMv6 CPU.
+          GOOS=linux GOARCH=arm GOARM=6 go build -ldflags "$LDFLAGS" \
+            -o dist/hall-clock-linux-armv6 ./src/hall-clock
+
+      - name: Checksums
+        run: cd dist && sha256sum hall-clock-linux-* > SHA256SUMS
+
+      - name: Publish release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "${{ github.ref_name }}" \
+            --title "${{ github.ref_name }}" \
+            --generate-notes \
+            dist/hall-clock-linux-arm64 \
+            dist/hall-clock-linux-armv7 \
+            dist/hall-clock-linux-armv6 \
+            dist/SHA256SUMS

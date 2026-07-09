@@ -1,0 +1,13 @@
+[Unit]
+Description=Watch for an Update button request from the Hall Clock setup page
+
+[Path]
+# The app runs as pi with NoNewPrivileges, so it cannot replace its binary or
+# restart its unit. It creates this file instead; systemd starts the root-owned
+# updater, which deletes the file as its first action. That is the whole privilege
+# boundary: the app can ask for an update, and can do nothing else as root.
+PathExists=/var/lib/hall-clock/update-requested
+Unit=hall-clock-update.service
+
+[Install]
+WantedBy=multi-user.target

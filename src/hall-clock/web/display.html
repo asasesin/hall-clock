@@ -1,0 +1,30 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Hall Clock Display</title>
+    <link rel="stylesheet" href="/assets/app.css">
+  </head>
+  <body class="display-page">
+    <main class="display-shell">
+      <section class="display-topline">
+        <div id="connection" class="connection">Connecting</div>
+      </section>
+
+      <section id="timerPanel" class="timer-panel">
+        <div id="timeValue" class="time-value">00:00</div>
+        <div class="progress-track">
+          <div id="progressFill" class="progress-fill"></div>
+        </div>
+      </section>
+
+      <footer class="display-footer">
+        <span id="clockValue">--:--</span>
+        <span id="statusFooter">Ready</span>
+      </footer>
+    </main>
+    <script src="/assets/shared.js"></script>
+    <script src="/assets/display.js"></script>
+  </body>
+</html>
