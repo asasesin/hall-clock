@@ -34,6 +34,8 @@ type server struct {
 	webAssets fs.FS
 }
 
+const currentConfigVersion = 1
+
 func newServer(configPath string) (*server, error) {
 	config, err := loadConfig(configPath)
 	if err != nil {
@@ -57,6 +59,31 @@ func newServer(configPath string) (*server, error) {
 		config.PrestartSeconds = 300
 	}
 	config.PrestartSeconds = clamp(config.PrestartSeconds, 60, 1800)
+	if config.MidweekLanguage == "" {
+		config.MidweekLanguage = wolLanguage(config.MidweekURL)
+	}
+	if config.MidweekLanguageSources == nil {
+		config.MidweekLanguageSources = map[string]string{}
+	}
+	if config.MidweekLanguage != "" && config.MidweekURL != "" {
+		config.MidweekLanguageSources[config.MidweekLanguage] = config.MidweekURL
+	}
+	if config.MidweekLanguage != "" && config.MidweekImportedWeek != "" && len(config.Schedule) > 0 {
+		if config.MidweekLanguageSchedules == nil {
+			config.MidweekLanguageSchedules = map[string]MidweekLanguageSchedule{}
+		}
+		cached := append([]Talk(nil), config.Schedule...)
+		normalizeSchedule(cached)
+		config.MidweekLanguageSchedules[config.MidweekLanguage] = MidweekLanguageSchedule{
+			ImportedWeek: config.MidweekImportedWeek,
+			URL:          config.MidweekURL,
+			Schedule:     cached,
+		}
+	}
+	if config.Version < currentConfigVersion {
+		config.AutoImportMidweek = true
+		config.Version = currentConfigVersion
+	}
 	if config.ControlToken == "" {
 		config.ControlToken, err = newToken()
 		if err != nil {
@@ -70,7 +97,7 @@ func newServer(configPath string) (*server, error) {
 	now := time.Now()
 	coActive := circuitOverseerActive(config.CircuitOverseerExpiresAt, now)
 	activeMeetingType := meetingTypeForTime(now)
-	activeSchedule := scheduleForMeetingType(activeMeetingType, config.Schedule, coActive)
+	activeSchedule := scheduleForMeetingType(activeMeetingType, config.Schedule, coActive, config.MidweekLanguage)
 	first := activeSchedule[0]
 	return &server{
 		configPath: configPath,
@@ -90,6 +117,7 @@ func newServer(configPath string) (*server, error) {
 			ClosingSeconds:           first.Closing,
 			CircuitOverseer:          coActive,
 			CircuitOverseerExpiresAt: circuitOverseerExpiryPtr(config.CircuitOverseerExpiresAt, now),
+			MidweekLanguage:          config.MidweekLanguage,
 			Schedule:                 activeSchedule,
 			Now:                      now,
 		},
@@ -143,6 +171,7 @@ func (s *server) routes(publicURL string) (*http.ServeMux, error) {
 	mux.HandleFunc("POST /api/control/move-part", s.protect(s.handleMovePart))
 	mux.HandleFunc("POST /api/control/bell", s.protect(s.handleBell))
 	mux.HandleFunc("POST /api/control/circuit-overseer", s.protect(s.handleCircuitOverseer))
+	mux.HandleFunc("POST /api/control/midweek-language", s.protect(s.handleMidweekLanguage))
 	mux.HandleFunc("POST /api/config", s.protect(s.handleSaveConfig))
 	mux.HandleFunc("POST /api/import/midweek", s.protect(s.handleImportMidweek))
 	mux.HandleFunc("POST /api/import/midweek-text", s.protect(s.handleImportMidweekText))
@@ -288,6 +317,7 @@ func (s *server) snapshotLocked() State {
 	out := s.state
 	out.Schedule = append([]Talk(nil), s.talks...)
 	out.MeetingStarts = append([]MeetingStart(nil), s.config.MeetingStarts...)
+	out.MidweekLanguage = s.config.MidweekLanguage
 	out.PairingActive = true
 	out.PairingExpiresAt = nil
 	return out

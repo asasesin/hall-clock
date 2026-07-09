@@ -37,6 +37,18 @@
         </div>
       </section>
 
+      <section class="language-panel tab-panel">
+        <label class="language-row">
+          <span>Part language</span>
+          <select id="languageSelect">
+            <option value="en">English</option>
+            <option value="es">Spanish</option>
+            <option value="tw">Twi</option>
+          </select>
+        </label>
+        <p id="languageStatus" class="language-hint">Available while idle. Uses already imported titles for this week.</p>
+      </section>
+
       <section id="timingPanel" class="tab-panel">
         <div class="button-grid compact-actions" aria-label="Adjust remaining time">
           <button data-adjust="-60" class="action adjust-action" type="button" aria-label="Subtract 1 minute">

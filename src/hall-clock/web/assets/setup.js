@@ -8,6 +8,8 @@
   const midweekUrlInput = document.getElementById("midweekUrlInput");
   const autoImportInput = document.getElementById("autoImportInput");
   const autoImportStatus = document.getElementById("autoImportStatus");
+  const scheduleModeText = document.getElementById("scheduleModeText");
+  const scheduleModeInline = document.getElementById("scheduleModeInline");
   const startsList = document.getElementById("startsList");
   const partsList = document.getElementById("partsList");
   const saveStatus = document.getElementById("saveStatus");
@@ -16,11 +18,11 @@
   const dayLabels = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
   async function load() {
-    const response = await fetch("/api/config");
-    const config = await response.json();
+    const config = await fetchConfig();
     deviceNameInput.value = config.deviceName || "Hall Clock";
     advertisedBaseUrlInput.value = config.advertisedBaseUrl || "";
     meetingTypeInput.value = config.meetingType || "midweek";
+    renderMeetingType(config.meetingType || "midweek");
     prestartMinutesInput.value = Math.round((config.prestartSeconds || 300) / 60);
     midweekUrlInput.value = config.midweekUrl || "";
     autoImportInput.checked = Boolean(config.autoImportMidweek);
@@ -29,6 +31,17 @@
     parts = config.schedule || [];
     renderStarts();
     renderParts();
+  }
+
+  async function fetchConfig() {
+    const response = await fetch("/api/config");
+    return response.json();
+  }
+
+  async function refreshMeetingType() {
+    const config = await fetchConfig();
+    meetingTypeInput.value = config.meetingType || "midweek";
+    renderMeetingType(meetingTypeInput.value);
   }
 
   function renderAutoStatus(config) {
@@ -41,11 +54,21 @@
     }
   }
 
+  function renderMeetingType(meetingType) {
+    const title = meetingType === "weekend" ? "Weekend meeting is active today" : "Midweek meeting is active today";
+    const detail = meetingType === "weekend"
+      ? "Weekend on Saturday and Sunday, midweek on other days."
+      : "Midweek today. Weekend mode still takes over automatically on Saturday and Sunday.";
+    if (scheduleModeText) scheduleModeText.textContent = title;
+    if (scheduleModeInline) scheduleModeInline.textContent = detail;
+  }
+
   function watchAutoImport(attempts) {
     setTimeout(async () => {
       try {
-        const config = await (await fetch("/api/config")).json();
+        const config = await fetchConfig();
         renderAutoStatus(config);
+        renderMeetingType(config.meetingType || "midweek");
         if (config.midweekUrl) midweekUrlInput.value = config.midweekUrl;
         if (config.midweekImportedWeek) {
           parts = config.schedule || parts;
@@ -65,8 +88,9 @@
       day,
       time,
       congregation: "",
+      midweekUrl: "",
     }));
-    starts.push({ id: starts.length + 1, day: 0, time: "10:00", congregation: "" });
+    starts.push({ id: starts.length + 1, day: 0, time: "10:00", congregation: "", midweekUrl: "" });
     return starts;
   }
 
@@ -90,6 +114,10 @@
           <span>Congregation</span>
           <input data-start-field="congregation" data-index="${index}" type="text" value="${escapeAttr(start.congregation || "")}" placeholder="Optional">
         </label>
+        <label class="field">
+          <span>WOL URL</span>
+          <input data-start-field="midweekUrl" data-index="${index}" type="url" value="${escapeAttr(start.midweekUrl || "")}" placeholder="Optional language source">
+        </label>
         <button data-remove-start="${index}" class="row-remove" type="button" aria-label="Remove this start time">Remove</button>
       `;
       startsList.appendChild(row);
@@ -103,6 +131,7 @@
       if (field === "day") meetingStarts[index].day = Number(input.value);
       if (field === "time") meetingStarts[index].time = input.value;
       if (field === "congregation") meetingStarts[index].congregation = input.value;
+      if (field === "midweekUrl") meetingStarts[index].midweekUrl = input.value;
     });
   }
 
@@ -164,6 +193,7 @@
       day: last ? Number(last.day) : 1,
       time: last ? last.time : "19:30",
       congregation: "",
+      midweekUrl: "",
     });
     renderStarts();
   });
@@ -177,10 +207,6 @@
       meetingStarts = defaultMeetingStarts("19:30");
     }
     renderStarts();
-  });
-
-  document.getElementById("midweekTemplateBtn").addEventListener("click", async () => {
-    await applyTemplate("/api/template/midweek");
   });
 
   document.getElementById("parseMidweekBtn").addEventListener("click", () => {
@@ -202,9 +228,11 @@
         url: midweekUrlInput.value,
         apply,
       });
-      meetingTypeInput.value = result.meetingType || "midweek";
       parts = result.schedule || [];
       renderParts();
+      if (apply) {
+        await refreshMeetingType();
+      }
       tokenWarning.classList.add("hidden");
       saveStatus.textContent = apply ? "Imported and saved" : `Previewed ${parts.length} parts`;
     } catch (error) {
@@ -221,33 +249,16 @@
         text: document.getElementById("midweekTextInput").value,
         apply,
       });
-      meetingTypeInput.value = result.meetingType || "midweek";
       parts = result.schedule || [];
       renderParts();
+      if (apply) {
+        await refreshMeetingType();
+      }
       tokenWarning.classList.add("hidden");
       saveStatus.textContent = apply ? "Imported and saved" : `Parsed ${parts.length} parts`;
     } catch (error) {
       tokenWarning.classList.remove("hidden");
       saveStatus.textContent = "Could not parse pasted timings";
-      console.error(error);
-    }
-  }
-
-  async function applyTemplate(path) {
-    saveStatus.textContent = "Applying template...";
-    try {
-      const state = await WallClock.postJSON(path);
-      deviceNameInput.value = state.deviceName || deviceNameInput.value;
-      meetingTypeInput.value = state.meetingType || "midweek";
-      meetingStarts = state.meetingStarts || meetingStarts;
-      renderStarts();
-      parts = state.schedule || [];
-      renderParts();
-      tokenWarning.classList.add("hidden");
-      saveStatus.textContent = "Template applied";
-    } catch (error) {
-      tokenWarning.classList.remove("hidden");
-      saveStatus.textContent = "Could not apply template";
       console.error(error);
     }
   }

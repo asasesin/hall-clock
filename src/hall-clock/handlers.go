@@ -15,16 +15,19 @@ func (s *server) handleState(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleConfig(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	out := Config{
-		DeviceName:          s.config.DeviceName,
-		AdvertisedBaseURL:   s.config.AdvertisedBaseURL,
-		MeetingType:         meetingTypeForTime(s.clock()),
-		MeetingStartTime:    s.config.MeetingStartTime,
-		MeetingStarts:       append([]MeetingStart(nil), s.config.MeetingStarts...),
-		PrestartSeconds:     s.config.PrestartSeconds,
-		MidweekURL:          s.config.MidweekURL,
-		AutoImportMidweek:   s.config.AutoImportMidweek,
-		MidweekImportedWeek: s.config.MidweekImportedWeek,
-		Schedule:            append([]Talk(nil), s.config.Schedule...),
+		DeviceName:               s.config.DeviceName,
+		AdvertisedBaseURL:        s.config.AdvertisedBaseURL,
+		MeetingType:              meetingTypeForTime(s.clock()),
+		MeetingStartTime:         s.config.MeetingStartTime,
+		MeetingStarts:            append([]MeetingStart(nil), s.config.MeetingStarts...),
+		PrestartSeconds:          s.config.PrestartSeconds,
+		MidweekURL:               s.config.MidweekURL,
+		MidweekLanguage:          s.config.MidweekLanguage,
+		MidweekLanguageSources:   copyStringMap(s.config.MidweekLanguageSources),
+		MidweekLanguageSchedules: copyMidweekLanguageScheduleMap(s.config.MidweekLanguageSchedules),
+		AutoImportMidweek:        s.config.AutoImportMidweek,
+		MidweekImportedWeek:      s.config.MidweekImportedWeek,
+		Schedule:                 append([]Talk(nil), s.config.Schedule...),
 	}
 	s.mu.Unlock()
 	writeJSON(w, out)
@@ -294,6 +297,41 @@ func (s *server) handleCircuitOverseer(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, state)
 }
 
+func (s *server) handleMidweekLanguage(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		Language string `json:"language"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	language := normalizeMidweekLanguage(body.Language)
+	if language == "" {
+		http.Error(w, "unsupported language", http.StatusBadRequest)
+		return
+	}
+
+	now := s.clock()
+	s.mu.Lock()
+	config, state, ok, message := s.applyCachedMidweekLanguageScheduleLocked(now, language)
+	s.mu.Unlock()
+	if !ok && strings.Contains(message, "not imported for this week yet") {
+		config, state, ok, message = s.importMidweekLanguage(r.Context(), now, language)
+	}
+	if !ok {
+		http.Error(w, message, http.StatusConflict)
+		return
+	}
+
+	if err := saveConfig(s.configPath, config); err != nil {
+		http.Error(w, "could not save language schedule", http.StatusInternalServerError)
+		return
+	}
+
+	s.broadcast(state)
+	writeJSON(w, state)
+}
+
 func (s *server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	var body Config
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
@@ -324,15 +362,30 @@ func (s *server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	body.PrestartSeconds = clamp(body.PrestartSeconds, 60, 1800)
 
 	s.mu.Lock()
+	// Read under the lock: the auto-import goroutine writes this map, and an
+	// unsynchronized iteration of it aborts the process.
+	existingLanguageSchedules := copyMidweekLanguageScheduleMap(s.config.MidweekLanguageSchedules)
 	s.config.DeviceName = body.DeviceName
 	s.config.AdvertisedBaseURL = advertisedURL
 	s.config.MeetingType = body.MeetingType
 	s.config.MeetingStartTime = body.MeetingStartTime
-	s.config.MeetingStarts = body.MeetingStarts
+	s.config.MeetingStarts = preserveMeetingStartImportState(s.config.MeetingStarts, body.MeetingStarts)
 	s.config.PrestartSeconds = body.PrestartSeconds
 	s.config.MidweekURL = strings.TrimSpace(body.MidweekURL)
+	if language := wolLanguage(s.config.MidweekURL); language != "" {
+		s.config.MidweekLanguage = language
+		if s.config.MidweekLanguageSources == nil {
+			s.config.MidweekLanguageSources = map[string]string{}
+		}
+		s.config.MidweekLanguageSources[language] = s.config.MidweekURL
+	}
 	s.config.AutoImportMidweek = body.AutoImportMidweek
 	s.config.Schedule = body.Schedule
+	if len(body.MidweekLanguageSchedules) > 0 {
+		s.config.MidweekLanguageSchedules = copyMidweekLanguageScheduleMap(body.MidweekLanguageSchedules)
+	} else {
+		s.config.MidweekLanguageSchedules = existingLanguageSchedules
+	}
 	s.state.DeviceName = body.DeviceName
 	s.state.MeetingType = body.MeetingType
 	s.state.MeetingStartTime = body.MeetingStartTime
@@ -353,9 +406,52 @@ func (s *server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, state)
 
 	now := s.clock()
-	if shouldAutoImportNow(now, config.AutoImportMidweek, config.MidweekImportedWeek) {
+	s.mu.Lock()
+	_, due := s.nextAutoImportSourceLocked(now)
+	s.mu.Unlock()
+	if due {
 		go s.autoImportTick(context.Background(), now)
 	}
+}
+
+func copyStringMap(in map[string]string) map[string]string {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]string, len(in))
+	for key, value := range in {
+		out[key] = value
+	}
+	return out
+}
+
+func copyMidweekLanguageScheduleMap(in map[string]MidweekLanguageSchedule) map[string]MidweekLanguageSchedule {
+	if len(in) == 0 {
+		return nil
+	}
+	out := make(map[string]MidweekLanguageSchedule, len(in))
+	for key, value := range in {
+		value.Schedule = append([]Talk(nil), value.Schedule...)
+		out[key] = value
+	}
+	return out
+}
+
+func preserveMeetingStartImportState(existing, incoming []MeetingStart) []MeetingStart {
+	byID := map[int]MeetingStart{}
+	for _, start := range existing {
+		if start.ID != 0 {
+			byID[start.ID] = start
+		}
+	}
+	for i := range incoming {
+		previous, ok := byID[incoming[i].ID]
+		if !ok || incoming[i].MidweekImportedWeek != "" || incoming[i].MidweekURL != previous.MidweekURL {
+			continue
+		}
+		incoming[i].MidweekImportedWeek = previous.MidweekImportedWeek
+	}
+	return incoming
 }
 
 func (s *server) handleImportMidweek(w http.ResponseWriter, r *http.Request) {
@@ -392,8 +488,17 @@ func (s *server) handleImportMidweek(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	s.config.MeetingType = "midweek"
 	s.config.MidweekURL = sourceURL
-	s.config.MidweekImportedWeek = isoWeekString(s.clock())
+	if language := wolLanguage(sourceURL); language != "" {
+		s.config.MidweekLanguage = language
+		if s.config.MidweekLanguageSources == nil {
+			s.config.MidweekLanguageSources = map[string]string{}
+		}
+		s.config.MidweekLanguageSources[language] = sourceURL
+	}
+	importedWeek := isoWeekString(s.clock())
+	s.config.MidweekImportedWeek = importedWeek
 	s.config.Schedule = schedule
+	s.storeMidweekLanguageScheduleLocked(s.config.MidweekLanguage, importedWeek, sourceURL, schedule)
 	s.applyActiveScheduleChangeLocked(s.clock())
 	config := s.config
 	state := s.snapshotLocked()
@@ -434,6 +539,7 @@ func (s *server) handleImportMidweekText(w http.ResponseWriter, r *http.Request)
 
 	s.mu.Lock()
 	s.config.MeetingType = "midweek"
+	s.config.MidweekLanguage = ""
 	s.config.MidweekImportedWeek = isoWeekString(s.clock())
 	s.config.Schedule = schedule
 	s.applyActiveScheduleChangeLocked(s.clock())
@@ -462,7 +568,10 @@ func setupResponse(state State, config Config) State {
 }
 
 func (s *server) handleWeekendTemplate(w http.ResponseWriter, r *http.Request) {
-	s.applyTemplate(w, "weekend", weekendSchedule())
+	s.mu.Lock()
+	language := s.config.MidweekLanguage
+	s.mu.Unlock()
+	s.applyTemplate(w, "weekend", weekendSchedule(language))
 }
 
 func (s *server) handleMidweekTemplate(w http.ResponseWriter, r *http.Request) {

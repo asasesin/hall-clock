@@ -9,8 +9,7 @@
   <body class="setup-page">
     <main class="setup-shell">
       <header class="setup-header">
-        <div>
-          <p class="eyebrow">Local appliance setup</p>
+        <div class="setup-header-copy">
           <h1>Hall Clock Settings</h1>
         </div>
         <nav class="setup-nav">
@@ -24,95 +23,87 @@
         Open this page from a paired controller or scan from <strong>/pair</strong>.
       </section>
 
-      <section class="template-panel">
-        <div>
-          <h2>Controller pairing</h2>
-          <p>Pairing is always available from the QR page.</p>
-        </div>
-        <div class="template-actions">
-          <a class="action" href="/pair">Open pairing page</a>
-        </div>
-      </section>
-
       <form id="setupForm" class="settings-form">
-        <label class="field">
-          <span>Device name</span>
-          <input id="deviceNameInput" name="deviceName" type="text" autocomplete="off" maxlength="60">
-        </label>
+        <section class="settings-card">
+          <div class="section-title">
+            <h2>Basics</h2>
+          </div>
 
-        <details class="advanced-field">
-          <summary>Advanced: controller URL override</summary>
-          <label class="field">
-            <span>Advertised controller URL</span>
-            <input id="advertisedBaseUrlInput" name="advertisedBaseUrl" type="url" placeholder="http://hallclock.local">
-            <span class="field-hint">Leave blank. The address is set by the server (its <code>-public-url</code> flag or the reverse proxy). Only fill this in to override a wrong QR/pairing link.</span>
-          </label>
-        </details>
+          <div class="settings-grid-two">
+            <label class="field">
+              <span>Device name</span>
+              <input id="deviceNameInput" name="deviceName" type="text" autocomplete="off" maxlength="60">
+            </label>
 
-        <label class="field">
-          <span>Automatic schedule</span>
-          <select id="meetingTypeInput" name="meetingType" disabled>
+            <label class="field">
+              <span>Automatic pre-meeting countdown (minutes)</span>
+              <input id="prestartMinutesInput" name="prestartMinutes" type="number" min="1" max="30" step="1">
+            </label>
+          </div>
+
+          <div class="setup-status-row">
+            <span class="status-pill" id="scheduleModeText">Midweek meeting is active today</span>
+            <span class="status-note" id="scheduleModeInline">Weekend switches automatically on Saturday and Sunday.</span>
+          </div>
+
+          <details class="advanced-field">
+            <summary>Controller URL override</summary>
+            <label class="field">
+              <span>Advertised controller URL</span>
+              <input id="advertisedBaseUrlInput" name="advertisedBaseUrl" type="url" placeholder="http://hallclock.local">
+              <span class="field-hint">Usually leave blank.</span>
+            </label>
+          </details>
+
+          <select id="meetingTypeInput" name="meetingType" class="visually-hidden" disabled>
             <option value="midweek">Midweek meeting</option>
             <option value="weekend">Weekend meeting</option>
           </select>
-          <span class="field-hint">Set automatically &mdash; weekend on Saturday and Sunday, midweek on other days.</span>
-        </label>
+        </section>
 
-        <label class="field">
-          <span>Automatic pre-meeting countdown (minutes)</span>
-          <input id="prestartMinutesInput" name="prestartMinutes" type="number" min="1" max="30" step="1">
-          <span class="field-hint">How long the display counts down before each meeting start time.</span>
-        </label>
-
-        <section class="start-times-panel">
+        <section class="start-times-panel settings-card">
           <div class="section-title">
-            <h2>Meeting Start Times</h2>
+            <h2>Meeting start times</h2>
             <button id="addStartBtn" class="small-button" type="button">Add start</button>
           </div>
-          <p>Set start times for any day, including weekends. Add several rows for the same day when congregations meet at different times &mdash; the display counts down before the next start time for today.</p>
           <div id="startsList" class="starts-list"></div>
         </section>
 
-        <section class="template-panel">
-          <div>
-            <h2>Quick templates</h2>
-            <p>Weekend switches automatically on Saturday and Sunday. Use the starter only to reset the saved midweek schedule.</p>
+        <section class="import-panel settings-card">
+          <div class="section-title">
+            <h2>Midweek import</h2>
           </div>
-          <div class="template-actions">
-            <button id="midweekTemplateBtn" class="action" type="button">Use midweek starter</button>
-          </div>
-        </section>
-
-        <section class="import-panel">
-          <h2>Midweek timing import</h2>
           <label class="toggle-row">
             <input id="autoImportInput" type="checkbox">
-            <span>Automatically pull each week's timings from WOL. Runs once per week and keeps the last schedule when offline. Save settings to apply.</span>
+            <span>Automatically import each week’s timings from WOL.</span>
           </label>
+          <p class="field-hint">For shared halls, add the congregation’s WOL midweek URL on its start time row. The importer keeps that language/library for that congregation.</p>
           <p id="autoImportStatus" class="import-status">Nothing imported yet.</p>
           <details class="manual-import">
-            <summary>Manual override</summary>
+            <summary>Manual fallback</summary>
             <div class="manual-import-body">
-              <p>For halls without internet, special weeks such as assemblies or the Memorial, or fixing a bad parse. Paste a WOL midweek program URL or timing text, then review before saving. The app only extracts part titles and minute values.</p>
+              <p>Use this only for special weeks, offline halls, or correcting a bad import.</p>
               <label class="field">
                 <span>WOL midweek URL</span>
                 <input id="midweekUrlInput" type="url" placeholder="https://wol.jw.org/en/wol/d/r1/lp-e/...">
               </label>
               <div class="template-actions">
-                <button id="previewMidweekUrlBtn" class="small-button" type="button">Preview URL timings</button>
-                <button id="applyMidweekUrlBtn" class="small-button" type="button">Import and save URL</button>
+                <button id="previewMidweekUrlBtn" class="small-button" type="button">Preview imported timings</button>
+                <button id="applyMidweekUrlBtn" class="small-button" type="button">Import URL now</button>
               </div>
               <textarea id="midweekTextInput" rows="8" placeholder="Opening Comments (1 min.)&#10;Spiritual Gems (10 min.)&#10;Bible Reading (4 min.)"></textarea>
-              <button id="parseMidweekBtn" class="small-button" type="button">Parse pasted timings</button>
+              <button id="parseMidweekBtn" class="small-button" type="button">Preview pasted timings</button>
             </div>
           </details>
         </section>
 
-        <div class="section-title">
-          <h2>Meeting Parts</h2>
-          <button id="addPartBtn" class="small-button" type="button">Add part</button>
-        </div>
-        <div id="partsList" class="parts-list"></div>
+        <section class="settings-card">
+          <div class="section-title">
+            <h2>Meeting parts</h2>
+            <button id="addPartBtn" class="small-button" type="button">Add part</button>
+          </div>
+          <div id="partsList" class="parts-list"></div>
+        </section>
 
         <div class="form-actions">
           <button class="action action-primary" type="submit">Save settings</button>

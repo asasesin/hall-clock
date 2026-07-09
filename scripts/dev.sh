@@ -22,7 +22,7 @@ start_server() {
   cleanup
   echo "[dev] starting hall-clock on ${ADDR}"
   go build -o "${TMP_BIN}" ./src/hall-clock
-  "${TMP_BIN}" -addr "${ADDR}" &
+  "${TMP_BIN}" -addr "${ADDR}" -web-dir src/hall-clock/web &
   server_pid=$!
   sleep 0.2
 }

@@ -38,10 +38,34 @@ func defaultSchedule() []Talk {
 	}
 }
 
-func weekendSchedule() []Talk {
+// weekendTitles translates the weekend program. The weekend parts are fixed
+// rather than imported from WOL, so every language has to be spelled out here.
+var weekendTitles = map[string]struct {
+	publicTalk        string
+	watchtowerStudy   string
+	watchtowerSummary string
+}{
+	"en": {"Public Talk", "Watchtower Study", "Watchtower Summary"},
+	"es": {"Discurso público", "Estudio de La Atalaya", "Estudio de La Atalaya"},
+	"tw": {"Baguam Kasa", "Ɔwɛn-Aban Adesua", "Ɔwɛn-Aban Adesua"},
+}
+
+func weekendTitlesFor(language string) struct {
+	publicTalk        string
+	watchtowerStudy   string
+	watchtowerSummary string
+} {
+	if titles, ok := weekendTitles[normalizeMidweekLanguage(language)]; ok {
+		return titles
+	}
+	return weekendTitles["en"]
+}
+
+func weekendSchedule(language string) []Talk {
+	titles := weekendTitlesFor(language)
 	return []Talk{
-		{ID: 1, Title: "Public Talk", Duration: 1800, Closing: 300},
-		{ID: 2, Title: "Watchtower Study", Duration: 3600, Closing: 300},
+		{ID: 1, Title: titles.publicTalk, Duration: 1800, Closing: 300},
+		{ID: 2, Title: titles.watchtowerStudy, Duration: 3600, Closing: 300},
 	}
 }
 
@@ -52,12 +76,12 @@ func meetingTypeForTime(now time.Time) string {
 	return "midweek"
 }
 
-func scheduleForMeetingType(meetingType string, midweekSchedule []Talk, circuitOverseer bool) []Talk {
+func scheduleForMeetingType(meetingType string, midweekSchedule []Talk, circuitOverseer bool, midweekLanguage string) []Talk {
 	if meetingType == "weekend" {
 		if circuitOverseer {
-			return circuitOverseerWeekendSchedule()
+			return circuitOverseerWeekendSchedule(midweekLanguage)
 		}
-		return weekendSchedule()
+		return weekendSchedule(midweekLanguage)
 	}
 	if circuitOverseer {
 		return circuitOverseerMidweekSchedule(midweekSchedule)
@@ -65,28 +89,73 @@ func scheduleForMeetingType(meetingType string, midweekSchedule []Talk, circuitO
 	return midweekSchedule
 }
 
+// congregationBibleStudyMarkers matches the Congregation Bible Study part by the
+// title WOL publishes for it in each supported language, so CO mode finds the
+// part to replace no matter which language the week was imported in.
+var congregationBibleStudyMarkers = map[string]string{
+	"en": "bible study",
+	"es": "estudio bíblico",
+	"tw": "bible adesua",
+}
+
+// serviceTalkTitles translates the service talk the CO gives in place of the
+// midweek Congregation Bible Study. WOL never publishes this part, so unlike
+// every other midweek title it cannot be imported.
+var serviceTalkTitles = map[string]string{
+	"en": "Service Talk",
+	"es": "Discurso de servicio",
+	"tw": "Ɔsom Kasa",
+}
+
+// congregationBibleStudyLanguage reports the language of a Congregation Bible
+// Study title. The markers do not overlap, so at most one can match.
+func congregationBibleStudyLanguage(title string) (string, bool) {
+	lowered := strings.ToLower(strings.TrimSpace(title))
+	for language, marker := range congregationBibleStudyMarkers {
+		if strings.Contains(lowered, marker) {
+			return language, true
+		}
+	}
+	return "", false
+}
+
+func serviceTalkTitle(language string) string {
+	if title := serviceTalkTitles[normalizeMidweekLanguage(language)]; title != "" {
+		return title
+	}
+	return serviceTalkTitles["en"]
+}
+
 // circuitOverseerWeekendSchedule is the weekend program during a circuit
 // overseer visit: a 30-minute public talk, a 30-minute Watchtower summary, and
 // the CO's 30-minute service talk.
-func circuitOverseerWeekendSchedule() []Talk {
+func circuitOverseerWeekendSchedule(language string) []Talk {
+	titles := weekendTitlesFor(language)
 	return []Talk{
-		{ID: 1, Title: "Public Talk", Duration: 1800, Closing: 300},
-		{ID: 2, Title: "Watchtower Summary", Duration: 1800, Closing: 300},
-		{ID: 3, Title: "Circuit Overseer Service Talk", Duration: 1800, Closing: 300},
+		{ID: 1, Title: titles.publicTalk, Duration: 1800, Closing: 300},
+		{ID: 2, Title: titles.watchtowerSummary, Duration: 1800, Closing: 300},
+		{ID: 3, Title: serviceTalkTitle(language), Duration: 1800, Closing: 300},
 	}
 }
 
 // circuitOverseerMidweekSchedule replaces the Congregation Bible Study with the
 // CO's 30-minute service talk, leaving the rest of the midweek program intact.
 // It returns a copy so the saved schedule is never mutated.
+//
+// The service talk is titled in the language of the part it replaces, not the
+// language recorded in config. Those disagree whenever the config flag is stale
+// (or was never written), and the schedule on the projector has to read as one
+// language: an English program with one Spanish part in the middle is worse than
+// an English program.
 func circuitOverseerMidweekSchedule(base []Talk) []Talk {
 	out := make([]Talk, 0, len(base))
 	replaced := false
 	for _, talk := range base {
-		if !replaced && strings.Contains(strings.ToLower(talk.Title), "bible study") {
+		partLanguage, isBibleStudy := congregationBibleStudyLanguage(talk.Title)
+		if !replaced && isBibleStudy {
 			out = append(out, Talk{
 				ID:       talk.ID,
-				Title:    "Circuit Overseer Service Talk",
+				Title:    serviceTalkTitle(partLanguage),
 				Duration: 1800,
 				Closing:  talk.Closing,
 			})
@@ -110,8 +179,15 @@ func sameSchedule(a, b []Talk) bool {
 	return true
 }
 
+// isWeekendSchedule reports whether a saved schedule is really the weekend
+// template, in any language — a midweek schedule must never be one of those.
 func isWeekendSchedule(schedule []Talk) bool {
-	weekend := weekendSchedule()
-	normalizeSchedule(weekend)
-	return sameSchedule(schedule, weekend)
+	for language := range weekendTitles {
+		weekend := weekendSchedule(language)
+		normalizeSchedule(weekend)
+		if sameSchedule(schedule, weekend) {
+			return true
+		}
+	}
+	return false
 }

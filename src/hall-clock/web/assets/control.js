@@ -18,6 +18,8 @@
   const statusBadge = document.getElementById("statusBadge");
   const coToggle = document.getElementById("coToggle");
   const coHint = document.getElementById("coHint");
+  const languageSelect = document.getElementById("languageSelect");
+  const languageStatus = document.getElementById("languageStatus");
   let lastBell = -1;
   let scheduleKey = "";
   let resetArmTimeout = null;
@@ -25,6 +27,8 @@
   let latestStatus = "idle";
   let latestState = null;
   let timerCommandPending = false;
+  let languageCommandPending = false;
+  let lastAppliedLanguage = "en";
 
   function render(state) {
     latestState = state;
@@ -56,6 +60,19 @@
     statusBadge.classList.toggle("paused", state.status === "paused");
     statusBadge.classList.toggle("prestart", prestart);
     coToggle.setAttribute("aria-checked", state.circuitOverseer ? "true" : "false");
+    const appliedLanguage = state.midweekLanguage || languageFromSchedule(state.schedule) || "en";
+    lastAppliedLanguage = appliedLanguage;
+    if (languageSelect && !languageCommandPending) {
+      languageSelect.value = appliedLanguage;
+    }
+    if (languageSelect) {
+      languageSelect.disabled = languageCommandPending || state.status !== "idle" || state.meetingType === "weekend";
+    }
+    if (languageStatus && !languageCommandPending && !languageStatus.classList.contains("error")) {
+      languageStatus.textContent = state.status === "idle"
+        ? "Available while idle. Uses already imported titles for this week."
+        : "Language can be changed after the timer is reset to idle.";
+    }
     // CO mode reshapes the schedule, so it's editable only while idle.
     coToggle.disabled = state.status !== "idle";
     coToggle.title = coToggle.disabled
@@ -176,6 +193,13 @@
     partPickerList.querySelectorAll(".part-picker-option").forEach((button) => {
       button.classList.toggle("selected", button.dataset.talkId === String(currentId));
     });
+  }
+
+  function languageFromSchedule(schedule) {
+    const title = (schedule || []).find((talk) => talk.title)?.title || "";
+    if (/[áéíóúñü¿¡]/i.test(title)) return "es";
+    if (/[ɔɛŋ]/i.test(title)) return "tw";
+    return "";
   }
 
   function escapeHTML(value) {
@@ -325,6 +349,64 @@
     const next = !(latestState && latestState.circuitOverseer);
     command("/api/control/circuit-overseer", { on: next });
   });
+  if (languageSelect) {
+    languageSelect.addEventListener("change", async () => {
+      const language = languageSelect.value;
+      languageCommandPending = true;
+      languageSelect.disabled = true;
+      if (languageStatus) {
+        languageStatus.classList.remove("error");
+        languageStatus.textContent = `Switching to ${languageName(language)} parts...`;
+      }
+      try {
+        const response = await fetch("/api/control/midweek-language", {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            "X-Wall-Clock-Token": WallClock.getToken(),
+          },
+          body: JSON.stringify({ language }),
+        });
+        if (!response.ok) {
+          const message = await response.text();
+          throw Object.assign(new Error(message), { status: response.status });
+        }
+        const state = await response.json();
+        render(state);
+        if (languageStatus) {
+          languageStatus.classList.remove("error");
+          languageStatus.textContent = `${languageName(language)} parts applied.`;
+        }
+      } catch (error) {
+        console.error(error);
+        if (languageStatus) {
+          if (error.status === 401 || error.status === 403) {
+            tokenWarning.classList.remove("hidden");
+            languageStatus.classList.add("error");
+            languageStatus.textContent = `Pair this phone before changing languages.`;
+          } else {
+            languageStatus.classList.add("error");
+            languageStatus.textContent = `Could not switch to ${languageName(language)}. ${cleanError(error.message)}`;
+          }
+        }
+      } finally {
+        languageCommandPending = false;
+        if (latestState) {
+          render(latestState);
+        }
+      }
+    });
+  }
+
+  function languageName(language) {
+    if (language === "es") return "Spanish";
+    if (language === "tw") return "Twi";
+    return "English";
+  }
+
+  function cleanError(message) {
+    return String(message || "").trim().replace(/\s+/g, " ");
+  }
   document.querySelectorAll("[data-adjust]").forEach((button) => {
     button.addEventListener("click", () => {
       command("/api/control/adjust", { deltaSeconds: Number(button.dataset.adjust) });

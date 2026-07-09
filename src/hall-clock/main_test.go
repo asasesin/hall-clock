@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -56,6 +57,138 @@ func TestProtectedControlAcceptsPairingToken(t *testing.T) {
 	}
 	if state.Status != StatusRunning {
 		t.Fatalf("expected running status, got %q", state.Status)
+	}
+}
+
+func TestMidweekLanguageChangeRequiresIdleTimer(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux, err := srv.routes("")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	startReq := httptest.NewRequest(http.MethodPost, "/api/control/start", nil)
+	startReq.Header.Set("X-Wall-Clock-Token", srv.config.ControlToken)
+	mux.ServeHTTP(httptest.NewRecorder(), startReq)
+
+	req := httptest.NewRequest(http.MethodPost, "/api/control/midweek-language", strings.NewReader(`{"language":"es"}`))
+	req.Header.Set("X-Wall-Clock-Token", srv.config.ControlToken)
+	res := httptest.NewRecorder()
+	mux.ServeHTTP(res, req)
+
+	if res.Code != http.StatusConflict {
+		t.Fatalf("expected conflict while timer is running, got %d: %s", res.Code, res.Body.String())
+	}
+}
+
+func TestMidweekLanguageSwitchUsesCachedSchedule(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv.mu.Lock()
+	srv.config.MidweekLanguageSchedules = map[string]MidweekLanguageSchedule{
+		"es": {
+			ImportedWeek: "2026-W28",
+			URL:          "https://wol.jw.org/es/wol/d/r4/lp-s/202026241",
+			Schedule: []Talk{
+				{ID: 1, Title: "Comentarios de introducción", Duration: 60, Closing: 30},
+			},
+		},
+	}
+	config, state, ok, message := srv.applyCachedMidweekLanguageScheduleLocked(
+		time.Date(2026, 7, 6, 18, 0, 0, 0, time.UTC),
+		"es",
+	)
+	srv.mu.Unlock()
+
+	if !ok {
+		t.Fatalf("expected cached Spanish schedule to apply: %s", message)
+	}
+	if config.MidweekLanguage != "es" || state.Schedule[0].Title != "Comentarios de introducción" {
+		t.Fatalf("expected Spanish schedule, got config=%+v state=%+v", config, state.Schedule)
+	}
+}
+
+func TestMidweekLanguageSwitchRejectsMissingCurrentWeekCache(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv.mu.Lock()
+	_, _, ok, message := srv.applyCachedMidweekLanguageScheduleLocked(
+		time.Date(2026, 7, 6, 18, 0, 0, 0, time.UTC),
+		"tw",
+	)
+	srv.mu.Unlock()
+
+	if ok {
+		t.Fatal("expected missing Twi cache to be rejected")
+	}
+	if !strings.Contains(message, "not imported") {
+		t.Fatalf("expected cache-miss message, got %q", message)
+	}
+}
+
+func TestMidweekLanguageSwitchCanImportMissingLanguageOnDemand(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux, err := srv.routes("")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv.clock = func() time.Time {
+		return time.Date(2026, 7, 9, 18, 0, 0, 0, time.UTC)
+	}
+	originalFetch := fetchWOLPageFunc
+	fetchWOLPageFunc = func(ctx context.Context, sourceURL string) (string, error) {
+		switch {
+		case strings.Contains(sourceURL, "/wol/d/r33/lp-tw/202026241"):
+			return `
+				<h2>July 13-19</h2>
+				<p>Ɔkasa (5 min.)</p>
+				<p>Adwumayɛ mu nsɛm (10 min.)</p>
+				<p>Kyerɛw kronkron akenkan (4 min.)</p>
+				<p>Awiei nsɛm (1 min.)</p>
+			`, nil
+		default:
+			return "", fmt.Errorf("unexpected URL: %s", sourceURL)
+		}
+	}
+	defer func() { fetchWOLPageFunc = originalFetch }()
+
+	req := httptest.NewRequest(http.MethodPost, "/api/control/midweek-language", strings.NewReader(`{"language":"tw"}`))
+	req.Header.Set("X-Wall-Clock-Token", srv.config.ControlToken)
+	res := httptest.NewRecorder()
+	mux.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected on-demand Twi import to succeed, got %d: %s", res.Code, res.Body.String())
+	}
+
+	var state State
+	if err := json.Unmarshal(res.Body.Bytes(), &state); err != nil {
+		t.Fatal(err)
+	}
+	if state.MidweekLanguage != "tw" {
+		t.Fatalf("expected Twi state after import, got %q", state.MidweekLanguage)
+	}
+	if len(state.Schedule) == 0 || state.Schedule[0].Title != "Ɔkasa" {
+		t.Fatalf("expected imported schedule in response, got %+v", state.Schedule)
+	}
+	srv.mu.Lock()
+	cached, ok := srv.config.MidweekLanguageSchedules["tw"]
+	srv.mu.Unlock()
+	if !ok || cached.ImportedWeek != "2026-W28" || len(cached.Schedule) == 0 {
+		t.Fatalf("expected Twi cache to be stored after import, got %+v", cached)
 	}
 }
 
@@ -251,6 +384,58 @@ func TestSaveConfigKeepsRunningTimer(t *testing.T) {
 	// Talk 2 started with 600s; the edit adds 300s, so remaining should be ~900.
 	if state.RemainingSeconds < 895 || state.RemainingSeconds > 900 {
 		t.Fatalf("expected remaining time to shift with the new duration, got %d", state.RemainingSeconds)
+	}
+}
+
+func TestSaveConfigPreservesMidweekLanguageSchedulesWhenOmitted(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux, err := srv.routes("")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv.mu.Lock()
+	srv.config.MidweekLanguageSchedules = map[string]MidweekLanguageSchedule{
+		"es": {
+			ImportedWeek: "2026-W28",
+			URL:          "https://wol.jw.org/es/wol/d/r4/lp-s/202026241",
+			Schedule: []Talk{
+				{ID: 1, Title: "Comentarios de introducción", Duration: 60, Closing: 30},
+			},
+		},
+	}
+	srv.mu.Unlock()
+
+	body, err := json.Marshal(Config{
+		Schedule: []Talk{
+			{Title: "Opening", Duration: 60, Closing: 30},
+			{Title: "Main Talk", Duration: 600, Closing: 90},
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(string(body)))
+	req.Header.Set("X-Wall-Clock-Token", srv.config.ControlToken)
+	res := httptest.NewRecorder()
+	mux.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected OK response, got %d: %s", res.Code, res.Body.String())
+	}
+
+	srv.mu.Lock()
+	defer srv.mu.Unlock()
+	got, ok := srv.config.MidweekLanguageSchedules["es"]
+	if !ok {
+		t.Fatal("expected Spanish language schedule cache to be preserved")
+	}
+	if got.ImportedWeek != "2026-W28" || len(got.Schedule) != 1 || got.Schedule[0].Title != "Comentarios de introducción" {
+		t.Fatalf("expected Spanish cache to remain intact, got %+v", got)
 	}
 }
 
@@ -733,6 +918,11 @@ func TestWeeklyMeetingsURL(t *testing.T) {
 	if got != "https://wol.jw.org/es/wol/meetings/r4/lp-s/2026/28" {
 		t.Fatalf("expected language segments to carry over, got %s", got)
 	}
+
+	got = weeklyMeetingsURL("https://wol.jw.org/tw/wol/d/r33/lp-tw/202026241", now)
+	if got != "https://wol.jw.org/tw/wol/meetings/r33/lp-tw/2026/28" {
+		t.Fatalf("expected Twi language segments to carry over, got %s", got)
+	}
 }
 
 func TestFindWorkbookDocURL(t *testing.T) {
@@ -763,6 +953,9 @@ func TestAutoImportTickSkipsWhenDisabledOrCurrent(t *testing.T) {
 	before := srv.snapshot().Schedule
 
 	// Disabled: must not touch anything (would fail on network in CI otherwise).
+	srv.mu.Lock()
+	srv.config.AutoImportMidweek = false
+	srv.mu.Unlock()
 	srv.autoImportTick(t.Context(), now)
 
 	// Enabled but already imported this week: must return before fetching.
@@ -775,6 +968,308 @@ func TestAutoImportTickSkipsWhenDisabledOrCurrent(t *testing.T) {
 	after := srv.snapshot().Schedule
 	if len(after) != len(before) {
 		t.Fatalf("expected schedule to be untouched, got %d parts", len(after))
+	}
+}
+
+func TestNextAutoImportSourceUsesUpcomingMeetingLanguage(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Date(2026, 7, 6, 3, 5, 0, 0, time.UTC)
+	currentWeek := isoWeekString(now)
+	srv.mu.Lock()
+	srv.config.AutoImportMidweek = true
+	srv.config.MidweekURL = "https://wol.jw.org/en/wol/d/r1/lp-e/202026241"
+	srv.config.MeetingStarts = normalizeMeetingStarts([]MeetingStart{
+		{
+			Day:          int(time.Monday),
+			Time:         "19:00",
+			Congregation: "Spanish",
+			MidweekURL:   "https://wol.jw.org/es/wol/d/r4/lp-s/202026241",
+		},
+		{
+			Day:                 int(time.Tuesday),
+			Time:                "19:00",
+			Congregation:        "Twi",
+			MidweekURL:          "https://wol.jw.org/tw/wol/d/r33/lp-tw/202026241",
+			MidweekImportedWeek: currentWeek,
+		},
+	}, "19:00")
+	source, due := srv.nextAutoImportSourceLocked(now)
+	srv.mu.Unlock()
+
+	if !due {
+		t.Fatal("expected upcoming Spanish meeting to be due")
+	}
+	if source.exampleURL != "https://wol.jw.org/es/wol/d/r4/lp-s/202026241" {
+		t.Fatalf("expected Spanish source, got %s", source.exampleURL)
+	}
+}
+
+func TestNextAutoImportSourceWaitsForCurrentMeetingBeforeFutureLanguage(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Date(2026, 7, 6, 4, 0, 0, 0, time.UTC)
+	currentWeek := isoWeekString(now)
+	srv.mu.Lock()
+	srv.config.AutoImportMidweek = true
+	srv.config.MeetingStarts = normalizeMeetingStarts([]MeetingStart{
+		{
+			Day:                 int(time.Monday),
+			Time:                "19:00",
+			Congregation:        "Spanish",
+			MidweekURL:          "https://wol.jw.org/es/wol/d/r4/lp-s/202026241",
+			MidweekImportedWeek: currentWeek,
+		},
+		{
+			Day:          int(time.Tuesday),
+			Time:         "19:00",
+			Congregation: "Twi",
+			MidweekURL:   "https://wol.jw.org/tw/wol/d/r33/lp-tw/202026241",
+		},
+	}, "19:00")
+	_, due := srv.nextAutoImportSourceLocked(now)
+	srv.mu.Unlock()
+
+	if due {
+		t.Fatal("did not expect Tuesday Twi import before Monday meeting has passed")
+	}
+}
+
+func TestNextAutoImportSourceDoesNotOverwriteDuringCurrentMeeting(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Date(2026, 7, 6, 20, 0, 0, 0, time.UTC)
+	currentWeek := isoWeekString(now)
+	srv.mu.Lock()
+	srv.config.AutoImportMidweek = true
+	srv.config.MeetingStarts = normalizeMeetingStarts([]MeetingStart{
+		{
+			Day:                 int(time.Monday),
+			Time:                "19:00",
+			Congregation:        "Spanish",
+			MidweekURL:          "https://wol.jw.org/es/wol/d/r4/lp-s/202026241",
+			MidweekImportedWeek: currentWeek,
+		},
+		{
+			Day:          int(time.Tuesday),
+			Time:         "19:00",
+			Congregation: "Twi",
+			MidweekURL:   "https://wol.jw.org/tw/wol/d/r33/lp-tw/202026241",
+		},
+	}, "19:00")
+	_, due := srv.nextAutoImportSourceLocked(now)
+	srv.mu.Unlock()
+
+	if due {
+		t.Fatal("did not expect next language import during the current meeting window")
+	}
+}
+
+func TestAutoImportNextCheckStaysInCurrentWeekForLaterLanguages(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Date(2026, 7, 6, 3, 5, 0, 0, time.UTC)
+	currentWeek := isoWeekString(now)
+	srv.mu.Lock()
+	srv.config.AutoImportMidweek = true
+	srv.config.MeetingStarts = normalizeMeetingStarts([]MeetingStart{
+		{
+			Day:                 int(time.Monday),
+			Time:                "19:00",
+			Congregation:        "Spanish",
+			MidweekURL:          "https://wol.jw.org/es/wol/d/r4/lp-s/202026241",
+			MidweekImportedWeek: currentWeek,
+		},
+		{
+			Day:          int(time.Tuesday),
+			Time:         "19:00",
+			Congregation: "Twi",
+			MidweekURL:   "https://wol.jw.org/tw/wol/d/r33/lp-tw/202026241",
+		},
+	}, "19:00")
+	next := srv.nextAutoImportCheckAtLocked(now)
+	srv.mu.Unlock()
+
+	want := time.Date(2026, 7, 6, 4, 5, 0, 0, time.UTC)
+	if !next.Equal(want) {
+		t.Fatalf("expected same-week retry check, got %s", next)
+	}
+}
+
+func TestAutoImportAllowsNextLanguageAtBackToBackStartBoundary(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	currentWeek := isoWeekString(time.Date(2026, 7, 6, 20, 0, 0, 0, time.UTC))
+	srv.mu.Lock()
+	srv.config.AutoImportMidweek = true
+	srv.config.MeetingStarts = normalizeMeetingStarts([]MeetingStart{
+		{
+			Day:                 int(time.Monday),
+			Time:                "19:00",
+			Congregation:        "Spanish",
+			MidweekURL:          "https://wol.jw.org/es/wol/d/r4/lp-s/202026241",
+			MidweekImportedWeek: currentWeek,
+		},
+		{
+			Day:          int(time.Monday),
+			Time:         "21:00",
+			Congregation: "Twi",
+			MidweekURL:   "https://wol.jw.org/tw/wol/d/r33/lp-tw/202026241",
+		},
+	}, "19:00")
+	next := srv.nextAutoImportCheckAtLocked(time.Date(2026, 7, 6, 20, 0, 0, 0, time.UTC))
+	source, due := srv.nextAutoImportSourceLocked(time.Date(2026, 7, 6, 21, 0, 0, 0, time.UTC))
+	srv.mu.Unlock()
+
+	if want := time.Date(2026, 7, 6, 21, 0, 0, 0, time.UTC); !next.Equal(want) {
+		t.Fatalf("expected check at next same-day start boundary, got %s", next)
+	}
+	if !due || source.exampleURL != "https://wol.jw.org/tw/wol/d/r33/lp-tw/202026241" {
+		t.Fatalf("expected Twi source to be due at boundary, due=%v source=%+v", due, source)
+	}
+}
+
+func TestAutoImportApplyRechecksMeetingWindowAfterFetch(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	beforeStart := time.Date(2026, 7, 6, 18, 59, 0, 0, time.UTC)
+	afterStart := time.Date(2026, 7, 6, 19, 1, 0, 0, time.UTC)
+	srv.mu.Lock()
+	srv.config.AutoImportMidweek = true
+	srv.config.MeetingStarts = normalizeMeetingStarts([]MeetingStart{
+		{
+			Day:          int(time.Monday),
+			Time:         "19:00",
+			Congregation: "Spanish",
+			MidweekURL:   "https://wol.jw.org/es/wol/d/r4/lp-s/202026241",
+		},
+	}, "19:00")
+	source, due := srv.nextAutoImportSourceLocked(beforeStart)
+	if !due {
+		t.Fatal("expected source to be due before meeting start")
+	}
+	before := append([]Talk(nil), srv.config.Schedule...)
+	_, _, ok := srv.applyAutoImportedScheduleLocked(
+		afterStart,
+		source,
+		"https://wol.jw.org/es/wol/d/r4/lp-s/202026241",
+		[]Talk{{ID: 1, Title: "Comentarios de introducción", Duration: 60, Closing: 30}},
+	)
+	after := append([]Talk(nil), srv.config.Schedule...)
+	srv.mu.Unlock()
+
+	if ok {
+		t.Fatal("expected stale auto-import apply to be rejected after meeting started")
+	}
+	if len(after) != len(before) || after[0].Title != before[0].Title {
+		t.Fatalf("expected schedule to remain unchanged, got %+v", after)
+	}
+}
+
+func TestMidweekLanguageSourceUsesConfiguredAndDefaultSources(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	srv.mu.Lock()
+	srv.config.MidweekLanguageSources = map[string]string{
+		"es": "https://wol.jw.org/es/wol/d/r4/lp-s/202026241",
+	}
+	spanish, spanishOK := srv.midweekLanguageSourceLocked("spanish")
+	twi, twiOK := srv.midweekLanguageSourceLocked("twi")
+	srv.mu.Unlock()
+
+	if !spanishOK || spanish != "https://wol.jw.org/es/wol/d/r4/lp-s/202026241" {
+		t.Fatalf("expected configured Spanish source, got ok=%v source=%q", spanishOK, spanish)
+	}
+	if !twiOK || twi != "https://wol.jw.org/tw/wol/d/r33/lp-tw/202026241" {
+		t.Fatalf("expected default Twi source, got ok=%v source=%q", twiOK, twi)
+	}
+}
+
+func TestValidateImportedLanguageRejectsEnglishTitlesForTwi(t *testing.T) {
+	schedule := []Talk{
+		{Title: "Opening Comments", Duration: 60},
+		{Title: "Spiritual Gems", Duration: 600},
+		{Title: "Bible Reading", Duration: 240},
+	}
+
+	if err := validateImportedLanguage("tw", schedule); err == nil {
+		t.Fatal("expected Twi import with English titles to be rejected")
+	}
+	if err := validateImportedLanguage("en", schedule); err != nil {
+		t.Fatalf("did not expect English import to be rejected: %v", err)
+	}
+}
+
+func TestNewServerMigratesLegacyConfigToAutoImportOn(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	config := Config{
+		DeviceName:        "Hall Clock",
+		MeetingType:       "midweek",
+		MeetingStartTime:  "19:00",
+		MeetingStarts:     defaultMeetingStarts("19:00"),
+		PrestartSeconds:   300,
+		AutoImportMidweek: false,
+		Schedule:          defaultSchedule(),
+	}
+	if err := saveConfig(path, config); err != nil {
+		t.Fatal(err)
+	}
+
+	srv, err := newServer(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !srv.config.AutoImportMidweek {
+		t.Fatal("expected legacy config to migrate auto-import on")
+	}
+	if srv.config.Version != currentConfigVersion {
+		t.Fatalf("expected config version %d, got %d", currentConfigVersion, srv.config.Version)
+	}
+}
+
+func TestNewServerPreservesExplicitAutoImportOffAfterMigration(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "config.json")
+	config := Config{
+		Version:           currentConfigVersion,
+		DeviceName:        "Hall Clock",
+		MeetingType:       "midweek",
+		MeetingStartTime:  "19:00",
+		MeetingStarts:     defaultMeetingStarts("19:00"),
+		PrestartSeconds:   300,
+		AutoImportMidweek: false,
+		Schedule:          defaultSchedule(),
+	}
+	if err := saveConfig(path, config); err != nil {
+		t.Fatal(err)
+	}
+
+	srv, err := newServer(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if srv.config.AutoImportMidweek {
+		t.Fatal("expected explicit auto-import off to be preserved")
 	}
 }
 
@@ -831,6 +1326,33 @@ func TestParseMidweekTimings(t *testing.T) {
 	}
 	if schedule[3].Title != "Bible Reading" || schedule[3].Duration != 240 {
 		t.Fatalf("unexpected bible reading slot: %+v", schedule[3])
+	}
+}
+
+func TestParseMidweekTimingsSupportsTranslatedTimingLines(t *testing.T) {
+	input := `
+		<h3>Jehová merece que le obedezcamos</h3>
+		<p>(10 mins.)</p>
+		<h3>Busquemos perlas escondidas</h3>
+		<p>(10 mins.)</p>
+		<h3>Lectura de la Biblia</h3>
+		<p>(4 mins.) Jer 13:1-14</p>
+		<h3>Ɔkasa</h3>
+		<p>(simma 5)</p>
+	`
+
+	schedule, err := parseMidweekTimings(input)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(schedule) != 4 {
+		t.Fatalf("expected 4 translated timing slots, got %d: %+v", len(schedule), schedule)
+	}
+	if schedule[0].Title != "Jehová merece que le obedezcamos" || schedule[0].Duration != 600 {
+		t.Fatalf("unexpected Spanish slot: %+v", schedule[0])
+	}
+	if schedule[3].Title != "Ɔkasa" || schedule[3].Duration != 300 {
+		t.Fatalf("unexpected Twi-style slot: %+v", schedule[3])
 	}
 }
 
@@ -1183,11 +1705,11 @@ func TestMeetingTypeSwitchDropsTemporaryParts(t *testing.T) {
 
 func TestCircuitOverseerScheduleTransforms(t *testing.T) {
 	// Weekend CO: three 30-minute parts.
-	wk := scheduleForMeetingType("weekend", nil, true)
+	wk := scheduleForMeetingType("weekend", nil, true, "en")
 	if len(wk) != 3 {
 		t.Fatalf("expected 3 weekend CO parts, got %d: %+v", len(wk), wk)
 	}
-	if wk[0].Title != "Public Talk" || wk[1].Title != "Watchtower Summary" || wk[2].Title != "Circuit Overseer Service Talk" {
+	if wk[0].Title != "Public Talk" || wk[1].Title != "Watchtower Summary" || wk[2].Title != "Service Talk" {
 		t.Fatalf("unexpected weekend CO titles: %+v", wk)
 	}
 	for _, p := range wk {
@@ -1198,13 +1720,13 @@ func TestCircuitOverseerScheduleTransforms(t *testing.T) {
 
 	// Midweek CO: Congregation Bible Study becomes the CO service talk, rest intact.
 	base := defaultSchedule()
-	mid := scheduleForMeetingType("midweek", base, true)
+	mid := scheduleForMeetingType("midweek", base, true, "en")
 	if len(mid) != len(base) {
 		t.Fatalf("expected midweek CO to keep part count %d, got %d", len(base), len(mid))
 	}
 	hasCO, hasCBS := false, false
 	for _, p := range mid {
-		if p.Title == "Circuit Overseer Service Talk" {
+		if p.Title == "Service Talk" {
 			hasCO = true
 		}
 		if strings.Contains(strings.ToLower(p.Title), "bible study") {
@@ -1220,8 +1742,76 @@ func TestCircuitOverseerScheduleTransforms(t *testing.T) {
 	}
 
 	// Off = unchanged.
-	if len(scheduleForMeetingType("weekend", nil, false)) != 2 {
+	if len(scheduleForMeetingType("weekend", nil, false, "en")) != 2 {
 		t.Fatal("weekend without CO should be 2 parts")
+	}
+}
+
+func TestWeekendScheduleFollowsLanguage(t *testing.T) {
+	es := weekendSchedule("es")
+	if es[0].Title != "Discurso público" || es[1].Title != "Estudio de La Atalaya" {
+		t.Fatalf("unexpected Spanish weekend titles: %+v", es)
+	}
+	tw := circuitOverseerWeekendSchedule("tw")
+	if tw[0].Title != "Baguam Kasa" || tw[1].Title != "Ɔwɛn-Aban Adesua" || tw[2].Title != "Ɔsom Kasa" {
+		t.Fatalf("unexpected Twi weekend CO titles: %+v", tw)
+	}
+	// An unknown or unrecorded language falls back to English.
+	if weekendSchedule("")[0].Title != "Public Talk" {
+		t.Fatal("expected English weekend fallback")
+	}
+	// A translated weekend template must still be recognized as one, or it
+	// would survive in config.Schedule as a bogus midweek program.
+	for _, language := range []string{"en", "es", "tw"} {
+		weekend := weekendSchedule(language)
+		normalizeSchedule(weekend)
+		if !isWeekendSchedule(weekend) {
+			t.Fatalf("%s weekend template not recognized: %+v", language, weekend)
+		}
+	}
+	if isWeekendSchedule(defaultSchedule()) {
+		t.Fatal("midweek schedule misidentified as weekend")
+	}
+}
+
+// Titles here are the ones WOL actually publishes for these languages; CO mode
+// has to find the Bible Study part without relying on the English wording.
+func TestCircuitOverseerMidweekScheduleNonEnglish(t *testing.T) {
+	cases := []struct {
+		language   string
+		bibleStudy string
+		wantTitle  string
+	}{
+		{"es", "Estudio bíblico de la congregación", "Discurso de servicio"},
+		{"tw", "Asafo Bible Adesua", "Ɔsom Kasa"},
+		// Older configs never recorded the language; infer it from the title.
+		{"", "Estudio bíblico de la congregación", "Discurso de servicio"},
+		// Stale config language, English schedule: the program must read as one
+		// language, so the title wins over the flag.
+		{"es", "Congregation Bible Study", "Service Talk"},
+		{"tw", "Congregation Bible Study", "Service Talk"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.language, func(t *testing.T) {
+			base := []Talk{
+				{ID: 1, Title: "Palabras de introducción", Duration: 60, Closing: 30},
+				{ID: 2, Title: tc.bibleStudy, Duration: 1800, Closing: 120},
+				{ID: 3, Title: "Palabras de conclusión", Duration: 180, Closing: 60},
+			}
+			got := scheduleForMeetingType("midweek", base, true, tc.language)
+			if len(got) != len(base) {
+				t.Fatalf("expected %d parts, got %d: %+v", len(base), len(got), got)
+			}
+			if got[1].Title != tc.wantTitle {
+				t.Fatalf("expected Bible Study replaced by %q, got %q", tc.wantTitle, got[1].Title)
+			}
+			if got[1].Duration != 1800 {
+				t.Fatalf("expected a 30-minute CO service talk, got %+v", got[1])
+			}
+			if base[1].Title != tc.bibleStudy {
+				t.Fatalf("base schedule was mutated: %+v", base)
+			}
+		})
 	}
 }
 

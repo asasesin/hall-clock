@@ -154,7 +154,7 @@ func (s *server) syncCircuitOverseerLocked(now time.Time) {
 		return
 	}
 	s.state.CircuitOverseer = active
-	s.applyScheduleLocked(scheduleForMeetingType(meetingTypeForTime(now), s.config.Schedule, active))
+	s.applyScheduleLocked(scheduleForMeetingType(meetingTypeForTime(now), s.config.Schedule, active, s.config.MidweekLanguage))
 }
 
 func (s *server) syncActiveScheduleLocked(now time.Time) {
@@ -167,7 +167,7 @@ func (s *server) syncActiveScheduleLocked(now time.Time) {
 	}
 	s.state.MeetingType = activeMeetingType
 	s.talks = withoutTemporaryTalks(s.talks)
-	s.applyScheduleLocked(scheduleForMeetingType(activeMeetingType, s.config.Schedule, s.state.CircuitOverseer))
+	s.applyScheduleLocked(scheduleForMeetingType(activeMeetingType, s.config.Schedule, s.state.CircuitOverseer, s.config.MidweekLanguage))
 }
 
 // purgeStaleTemporaryPartsLocked drops ad-hoc parts left over from an earlier
@@ -252,7 +252,7 @@ func latestMeetingStart(now time.Time, starts []MeetingStart) (time.Time, bool) 
 
 func (s *server) applyActiveScheduleChangeLocked(now time.Time) {
 	activeMeetingType := meetingTypeForTime(now)
-	activeSchedule := scheduleForMeetingType(activeMeetingType, s.config.Schedule, s.state.CircuitOverseer)
+	activeSchedule := scheduleForMeetingType(activeMeetingType, s.config.Schedule, s.state.CircuitOverseer, s.config.MidweekLanguage)
 	if s.state.Status == StatusIdle {
 		if s.state.MeetingType != activeMeetingType {
 			s.state.MeetingType = activeMeetingType

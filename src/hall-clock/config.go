@@ -14,7 +14,7 @@ import (
 func loadConfig(path string) (Config, error) {
 	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
-		return Config{}, nil
+		return Config{AutoImportMidweek: true}, nil
 	}
 	if err != nil {
 		return Config{}, err
@@ -101,6 +101,7 @@ func normalizeMeetingStarts(starts []MeetingStart, fallbackStartTime string) []M
 		}
 		start.Time = normalizeStartTime(start.Time)
 		start.Congregation = strings.TrimSpace(start.Congregation)
+		start.MidweekURL = strings.TrimSpace(start.MidweekURL)
 		normalized = append(normalized, start)
 	}
 	if len(normalized) == 0 {
