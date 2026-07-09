@@ -70,8 +70,9 @@
     }
     if (languageStatus && !languageCommandPending && !languageStatus.classList.contains("error")) {
       languageStatus.textContent = state.status === "idle"
-        ? "Available while idle. Uses already imported titles for this week."
-        : "Language can be changed after the timer is reset to idle.";
+        ? ""
+        : "Language can be changed after reset.";
+      languageStatus.classList.toggle("hidden", languageStatus.textContent === "");
     }
     // CO mode reshapes the schedule, so it's editable only while idle.
     coToggle.disabled = state.status !== "idle";
@@ -80,8 +81,10 @@
       : "Circuit overseer visit schedule";
     if (state.circuitOverseer && state.circuitOverseerExpiresAt) {
       coHint.textContent = `On — turns off automatically around ${WallClock.formatClock(state.circuitOverseerExpiresAt)}`;
+      coHint.classList.remove("hidden");
     } else {
-      coHint.textContent = "Swaps in the CO visit schedule for 3 hours";
+      coHint.textContent = "";
+      coHint.classList.add("hidden");
     }
 
     const schedule = state.schedule || [];
@@ -356,6 +359,7 @@
       languageSelect.disabled = true;
       if (languageStatus) {
         languageStatus.classList.remove("error");
+        languageStatus.classList.remove("hidden");
         languageStatus.textContent = `Switching to ${languageName(language)} parts...`;
       }
       try {
@@ -375,6 +379,7 @@
         render(state);
         if (languageStatus) {
           languageStatus.classList.remove("error");
+          languageStatus.classList.remove("hidden");
           languageStatus.textContent = `${languageName(language)} parts applied.`;
         }
       } catch (error) {
@@ -383,9 +388,11 @@
           if (error.status === 401 || error.status === 403) {
             tokenWarning.classList.remove("hidden");
             languageStatus.classList.add("error");
+            languageStatus.classList.remove("hidden");
             languageStatus.textContent = `Pair this phone before changing languages.`;
           } else {
             languageStatus.classList.add("error");
+            languageStatus.classList.remove("hidden");
             languageStatus.textContent = `Could not switch to ${languageName(language)}. ${cleanError(error.message)}`;
           }
         }
