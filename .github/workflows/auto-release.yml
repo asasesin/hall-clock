@@ -1,0 +1,107 @@
+name: Auto Release
+
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+
+permissions:
+  contents: write
+
+concurrency:
+  group: auto-release-main
+  cancel-in-progress: false
+
+jobs:
+  release:
+    if: >-
+      ${{
+        github.event.workflow_run.conclusion == 'success' &&
+        github.event.workflow_run.head_branch == 'main' &&
+        github.event.workflow_run.event == 'push'
+      }}
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          ref: ${{ github.event.workflow_run.head_sha }}
+          fetch-depth: 0
+
+      - name: Choose next patch tag
+        id: tag
+        run: |
+          set -euo pipefail
+          git fetch --tags --quiet
+
+          if git tag --points-at HEAD --list 'v[0-9]*.[0-9]*.[0-9]*' | grep -q .; then
+            echo "already_tagged=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          latest="$(git tag --list 'v[0-9]*.[0-9]*.[0-9]*' --sort=-v:refname | head -n 1)"
+          if [ -z "$latest" ]; then
+            next="v0.1.0"
+          else
+            version="${latest#v}"
+            IFS=. read -r major minor patch <<< "$version"
+            next="v${major}.${minor}.$((patch + 1))"
+          fi
+
+          echo "already_tagged=false" >> "$GITHUB_OUTPUT"
+          echo "tag=$next" >> "$GITHUB_OUTPUT"
+          echo "Next release tag is $next."
+
+      - name: Set up Go
+        if: steps.tag.outputs.already_tagged == 'false'
+        uses: actions/setup-go@v6
+        with:
+          go-version: "1.25"
+
+      - name: Vet
+        if: steps.tag.outputs.already_tagged == 'false'
+        run: go vet ./...
+
+      - name: Test (race)
+        if: steps.tag.outputs.already_tagged == 'false'
+        run: go test -race ./...
+
+      - name: Build Pi binaries
+        if: steps.tag.outputs.already_tagged == 'false'
+        env:
+          VERSION: ${{ steps.tag.outputs.tag }}
+        run: |
+          set -euo pipefail
+          mkdir -p dist
+          LDFLAGS="-s -w -X main.version=${VERSION}"
+          GOOS=linux GOARCH=arm64 go build -ldflags "$LDFLAGS" \
+            -o dist/hall-clock-linux-arm64 ./src/hall-clock
+          GOOS=linux GOARCH=arm GOARM=7 go build -ldflags "$LDFLAGS" \
+            -o dist/hall-clock-linux-armv7 ./src/hall-clock
+          GOOS=linux GOARCH=arm GOARM=6 go build -ldflags "$LDFLAGS" \
+            -o dist/hall-clock-linux-armv6 ./src/hall-clock
+
+      - name: Checksums
+        if: steps.tag.outputs.already_tagged == 'false'
+        run: cd dist && sha256sum hall-clock-linux-* > SHA256SUMS
+
+      - name: Publish release
+        if: steps.tag.outputs.already_tagged == 'false'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ steps.tag.outputs.tag }}
+          TARGET: ${{ github.event.workflow_run.head_sha }}
+        run: |
+          set -euo pipefail
+
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" \
+              --target "$TARGET" \
+              --title "$TAG" \
+              --generate-notes \
+              dist/hall-clock-linux-arm64 \
+              dist/hall-clock-linux-armv7 \
+              dist/hall-clock-linux-armv6 \
+              dist/SHA256SUMS
+          fi
