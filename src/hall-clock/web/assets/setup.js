@@ -9,10 +9,11 @@
   const autoImportInput = document.getElementById("autoImportInput");
   const autoImportStatus = document.getElementById("autoImportStatus");
   const scheduleModeText = document.getElementById("scheduleModeText");
-  const scheduleModeInline = document.getElementById("scheduleModeInline");
   const startsList = document.getElementById("startsList");
   const partsList = document.getElementById("partsList");
   const saveStatus = document.getElementById("saveStatus");
+  const tabButtons = Array.from(document.querySelectorAll("[data-settings-tab]"));
+  const tabPanels = Array.from(document.querySelectorAll("[data-settings-panel]"));
   let parts = [];
   let meetingStarts = [];
   const dayLabels = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -56,11 +57,22 @@
 
   function renderMeetingType(meetingType) {
     const title = meetingType === "weekend" ? "Weekend meeting is active today" : "Midweek meeting is active today";
-    const detail = meetingType === "weekend"
-      ? "Weekend on Saturday and Sunday, midweek on other days."
-      : "Midweek today. Weekend mode still takes over automatically on Saturday and Sunday.";
     if (scheduleModeText) scheduleModeText.textContent = title;
-    if (scheduleModeInline) scheduleModeInline.textContent = detail;
+  }
+
+  function activateTab(name, focus) {
+    tabButtons.forEach((button) => {
+      const active = button.dataset.settingsTab === name;
+      button.classList.toggle("active", active);
+      button.setAttribute("aria-selected", String(active));
+      button.tabIndex = active ? 0 : -1;
+      if (active && focus) button.focus();
+    });
+    tabPanels.forEach((panel) => {
+      const active = panel.dataset.settingsPanel === name;
+      panel.classList.toggle("active", active);
+      panel.hidden = !active;
+    });
   }
 
   function watchAutoImport(attempts) {
@@ -183,6 +195,20 @@
     readPartsFromForm();
     parts.push({ title: `Part ${parts.length + 1}`, durationSeconds: 300, closingSeconds: 60 });
     renderParts();
+  });
+
+  tabButtons.forEach((button, index) => {
+    button.addEventListener("click", () => activateTab(button.dataset.settingsTab, false));
+    button.addEventListener("keydown", (event) => {
+      if (!["ArrowLeft", "ArrowRight", "Home", "End"].includes(event.key)) return;
+      event.preventDefault();
+      let nextIndex = index;
+      if (event.key === "ArrowLeft") nextIndex = index === 0 ? tabButtons.length - 1 : index - 1;
+      if (event.key === "ArrowRight") nextIndex = index === tabButtons.length - 1 ? 0 : index + 1;
+      if (event.key === "Home") nextIndex = 0;
+      if (event.key === "End") nextIndex = tabButtons.length - 1;
+      activateTab(tabButtons[nextIndex].dataset.settingsTab, true);
+    });
   });
 
   document.getElementById("addStartBtn").addEventListener("click", () => {

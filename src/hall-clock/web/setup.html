@@ -24,7 +24,14 @@
       </section>
 
       <form id="setupForm" class="settings-form">
-        <section class="settings-card">
+        <div class="settings-tabs" role="tablist" aria-label="Settings sections">
+          <button class="settings-tab active" type="button" role="tab" aria-selected="true" aria-controls="basicsPanel" data-settings-tab="basics">Basics</button>
+          <button class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="startsPanel" data-settings-tab="starts">Start times</button>
+          <button class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="importPanel" data-settings-tab="import">Import</button>
+          <button class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="partsPanel" data-settings-tab="parts">Parts</button>
+        </div>
+
+        <section id="basicsPanel" class="settings-card settings-panel active" role="tabpanel" data-settings-panel="basics">
           <div class="section-title">
             <h2>Basics</h2>
           </div>
@@ -43,7 +50,6 @@
 
           <div class="setup-status-row">
             <span class="status-pill" id="scheduleModeText">Midweek meeting is active today</span>
-            <span class="status-note" id="scheduleModeInline">Weekend switches automatically on Saturday and Sunday.</span>
           </div>
 
           <details class="advanced-field">
@@ -61,7 +67,7 @@
           </select>
         </section>
 
-        <section class="start-times-panel settings-card">
+        <section id="startsPanel" class="start-times-panel settings-card settings-panel" role="tabpanel" data-settings-panel="starts" hidden>
           <div class="section-title">
             <h2>Meeting start times</h2>
             <button id="addStartBtn" class="small-button" type="button">Add start</button>
@@ -69,7 +75,7 @@
           <div id="startsList" class="starts-list"></div>
         </section>
 
-        <section class="import-panel settings-card">
+        <section id="importPanel" class="import-panel settings-card settings-panel" role="tabpanel" data-settings-panel="import" hidden>
           <div class="section-title">
             <h2>Midweek import</h2>
           </div>
@@ -77,12 +83,10 @@
             <input id="autoImportInput" type="checkbox">
             <span>Automatically import each week’s timings from WOL.</span>
           </label>
-          <p class="field-hint">For shared halls, add the congregation’s WOL midweek URL on its start time row. The importer keeps that language/library for that congregation.</p>
           <p id="autoImportStatus" class="import-status">Nothing imported yet.</p>
           <details class="manual-import">
             <summary>Manual fallback</summary>
             <div class="manual-import-body">
-              <p>Use this only for special weeks, offline halls, or correcting a bad import.</p>
               <label class="field">
                 <span>WOL midweek URL</span>
                 <input id="midweekUrlInput" type="url" placeholder="https://wol.jw.org/en/wol/d/r1/lp-e/...">
@@ -97,7 +101,7 @@
           </details>
         </section>
 
-        <section class="settings-card">
+        <section id="partsPanel" class="settings-card settings-panel" role="tabpanel" data-settings-panel="parts" hidden>
           <div class="section-title">
             <h2>Meeting parts</h2>
             <button id="addPartBtn" class="small-button" type="button">Add part</button>
