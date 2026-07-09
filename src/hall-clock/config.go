@@ -1,9 +1,11 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -19,15 +21,37 @@ func loadConfig(path string) (Config, error) {
 	if err != nil {
 		return Config{}, err
 	}
+	// An empty file is a config that was being written when the box lost power
+	// or the process was killed. Treat it like a missing one.
+	if len(bytes.TrimSpace(data)) == 0 {
+		log.Printf("config: %s is empty; starting from defaults", path)
+		return Config{AutoImportMidweek: true}, nil
+	}
 	var config Config
 	if err := json.Unmarshal(data, &config); err != nil {
-		return Config{}, err
+		// A clock that will not boot is worse than a clock that forgot its
+		// schedule: an unreadable config used to crash-loop the appliance until
+		// somebody could reach it with ssh, which for most halls is nobody.
+		// Keep the bad file for forensics and come up on defaults. Phones
+		// re-pair themselves through /api/pairing, so a lost token is invisible.
+		corrupt := path + ".corrupt"
+		if renameErr := os.Rename(path, corrupt); renameErr != nil {
+			log.Printf("config: could not set aside unreadable %s: %v", path, renameErr)
+		}
+		log.Printf("config: %s is unreadable (%v); starting from defaults, bad copy kept at %s", path, err, corrupt)
+		return Config{AutoImportMidweek: true}, nil
 	}
 	return config, nil
 }
 
+// saveConfig writes the config atomically: a temporary file in the same
+// directory, flushed to disk, then renamed over the target. os.WriteFile would
+// truncate the real file first, so a process killed mid-write (systemd stopping
+// the unit for an update, or the Pi losing power) would leave an empty config
+// behind and the app would never boot again.
 func saveConfig(path string, config Config) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	dir := filepath.Dir(path)
+	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
 	data, err := json.MarshalIndent(config, "", "  ")
@@ -35,7 +59,31 @@ func saveConfig(path string, config Config) error {
 		return err
 	}
 	data = append(data, '\n')
-	return os.WriteFile(path, data, 0o600)
+
+	tmp, err := os.CreateTemp(dir, ".config-*.json")
+	if err != nil {
+		return err
+	}
+	defer os.Remove(tmp.Name())
+
+	if err := tmp.Chmod(0o600); err != nil {
+		tmp.Close()
+		return err
+	}
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	// Rename is atomic, but on an SD card the rename can land before the data
+	// does. Flush first, or a power cut leaves a valid name pointing at zeroes.
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(tmp.Name(), path)
 }
 
 func defaultConfigPath() string {
