@@ -485,13 +485,21 @@ textarea {
   z-index: 1;
 }
 
+/* Field labels in the parts card share the top card's eyebrow treatment --
+   uppercase, tracked, muted -- so the whole page reads as one system. */
+.language-row,
+.control-field-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  text-align: left;
+}
+
 .language-row {
   display: grid;
   gap: 8px;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
-  text-align: left;
 }
 
 #partsPanel .language-row {
@@ -507,22 +515,36 @@ textarea {
   gap: 8px;
 }
 
-.control-field-label {
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 800;
-  text-align: left;
-}
 
 .language-row select {
   width: 100%;
-  min-height: 44px;
+  min-height: 48px;
   border: 1px solid var(--line-strong);
   border-radius: 12px;
-  padding: 0 12px;
-  background: #0d1217;
+  padding: 0 40px 0 14px;
+  /* Drop the OS chevron and draw our own, matching the part picker below, so the
+     field reads as part of the custom control set rather than a browser widget. */
+  appearance: none;
+  -webkit-appearance: none;
+  background-color: rgba(255, 255, 255, 0.02);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='8' viewBox='0 0 12 8'%3E%3Cpath d='M1 1.5 6 6.5l5-5' fill='none' stroke='%2395a0ad' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 14px center;
   color: var(--text);
-  font-weight: 800;
+  font-size: 15px;
+  font-weight: 700;
+  cursor: pointer;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.language-row select:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.28);
+  background-color: rgba(255, 255, 255, 0.04);
+}
+
+.language-row select:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
 }
 
 .language-row select:disabled {
@@ -549,16 +571,21 @@ textarea {
   grid-template-columns: minmax(0, 1fr) auto;
   gap: 12px;
   align-items: center;
-  margin-top: 14px;
   border: 1px solid var(--line-strong);
-  border-radius: 999px;
+  border-radius: 12px;
   padding: 12px 42px 12px 16px;
-  background: #0d1217;
+  background-color: rgba(255, 255, 255, 0.02);
   color: var(--text);
-  font-weight: 800;
+  font-weight: 700;
   text-align: left;
   cursor: pointer;
   position: relative;
+  transition: border-color 150ms ease, background-color 150ms ease;
+}
+
+.part-picker-button:hover {
+  border-color: rgba(255, 255, 255, 0.28);
+  background-color: rgba(255, 255, 255, 0.04);
 }
 
 .part-picker-button::after {
@@ -687,15 +714,14 @@ textarea {
 
 .temporary-part-button {
   width: 100%;
-  min-height: 40px;
-  margin-top: 8px;
-  border: 1px solid rgba(255, 255, 255, 0.12);
-  border-radius: 999px;
+  min-height: 46px;
+  border: 1px dashed rgba(255, 255, 255, 0.16);
+  border-radius: 12px;
   padding: 9px 12px;
-  background: rgba(255, 255, 255, 0.04);
+  background: transparent;
   color: #b8c1cc;
-  font-size: 13px;
-  font-weight: 800;
+  font-size: 14px;
+  font-weight: 700;
   cursor: pointer;
   transition: border-color 150ms ease, color 150ms ease, background-color 150ms ease;
 }
