@@ -83,7 +83,7 @@
     if (languageStatus && !languageCommandPending && !languageStatus.classList.contains("error")) {
       languageStatus.textContent = state.status === "idle"
         ? ""
-        : "Language can be changed after reset.";
+        : "Language can be changed while the timer is idle.";
       languageStatus.classList.toggle("hidden", languageStatus.textContent === "");
     }
     // CO mode reshapes the schedule, so it's editable only while idle.
