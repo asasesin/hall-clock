@@ -179,8 +179,9 @@ func TestScheduleEditNeverExpiresMidMeeting(t *testing.T) {
 		t.Fatalf("a running meeting must keep its edited schedule, got %ds", running.Schedule[0].Duration)
 	}
 
-	// Once the meeting ends, the baseline returns.
-	h.post("/api/control/reset", "")
+	// Once the meeting goes idle -- the operator selecting a part to prepare the
+	// next one -- the expired edit gives way to the baseline.
+	h.selectPart(running.CurrentTalkID)
 	idle := h.state()
 	if !sameSchedule(idle.Schedule, baseline) {
 		t.Fatalf("expected baseline once idle, got %+v", idle.Schedule)
@@ -276,8 +277,8 @@ func TestSaveAfterExpiryDoesNotRearmOverride(t *testing.T) {
 		t.Fatalf("expired one-session edit resurrected until %v (now %v)", expiry, h.now)
 	}
 
-	// And once the meeting ends, the baseline returns.
-	h.post("/api/control/reset", "")
+	// And once the meeting goes idle, the baseline returns.
+	h.selectPart(h.state().CurrentTalkID)
 	if got := h.state(); got.Schedule[0].Duration != 60 {
 		t.Fatalf("expected baseline once idle, got %ds", got.Schedule[0].Duration)
 	}

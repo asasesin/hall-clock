@@ -65,13 +65,23 @@ func (s *server) handlePause(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, state)
 }
 
+// handleReset restarts the current part's countdown from its full time without
+// stopping it: a running part keeps running from the top, a paused one stays
+// paused at the top. It does not change which part is selected. For a part that
+// was over, this gives its time back, so the meeting's overtime total drops by
+// that live amount.
 func (s *server) handleReset(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
-	s.state.Status = StatusIdle
 	s.remainingAt = s.state.DurationSeconds
 	s.state.RemainingSeconds = s.state.DurationSeconds
 	s.state.ElapsedSeconds = 0
 	s.state.OvertimeSeconds = 0
+	// Restart the clock from now so a running part counts down from full; leaving
+	// startedAt untouched would make recalculate immediately subtract the elapsed
+	// time again.
+	if s.state.Status == StatusRunning {
+		s.startedAt = s.clock()
+	}
 	state := s.snapshotLocked()
 	s.mu.Unlock()
 
