@@ -352,16 +352,22 @@ textarea {
   text-align: center;
 }
 
-/* Circuit-overseer-visit toggle row at the top of the Parts card: swaps in the
-   CO schedule for both meetings. */
+/* Pre-meeting schedule setup (language + CO), divided from the live item
+   controls above it. Both lock once the timer runs, so they sit at the bottom. */
+.schedule-setup {
+  display: grid;
+  gap: 12px;
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+/* Circuit-overseer-visit toggle: swaps in the CO schedule for both meetings. */
 .co-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--line);
 }
 
 .co-row-text {
