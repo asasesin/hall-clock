@@ -14,6 +14,7 @@
   const startBtn = document.getElementById("startBtn");
   const nextBtn = document.getElementById("nextBtn");
   const resetBtn = document.getElementById("resetBtn");
+  const endBtn = document.getElementById("endBtn");
   const partPosition = document.getElementById("partPosition");
   const meetingOvertime = document.getElementById("meetingOvertime");
   const nextPart = document.getElementById("nextPart");
@@ -26,6 +27,7 @@
   let scheduleKey = "";
   let resetArmTimeout = null;
   let nextArmTimeout = null;
+  let endArmTimeout = null;
   let partArmTimeout = null;
   let latestStatus = "idle";
   let latestState = null;
@@ -54,6 +56,11 @@
     resetBtn.disabled = state.status === "idle" && state.remainingSeconds === state.durationSeconds;
     if (resetBtn.disabled && resetBtn.classList.contains("armed")) {
       disarmReset();
+    }
+    // Nothing to end when the clock is already idle.
+    endBtn.disabled = state.status === "idle";
+    if (endBtn.disabled && endBtn.classList.contains("armed")) {
+      disarmEnd();
     }
     if (state.status === "idle") {
       disarmPartButtons();
@@ -283,6 +290,13 @@
     resetBtn.textContent = "Restart time";
   }
 
+  function disarmEnd() {
+    clearTimeout(endArmTimeout);
+    endArmTimeout = null;
+    endBtn.classList.remove("armed");
+    endBtn.textContent = "End meeting";
+  }
+
   // The last item has nothing after it, so the button says so rather than
   // looping back to the opening comments.
   function isLastPart(state) {
@@ -400,6 +414,18 @@
     }
     disarmReset();
     command("/api/control/reset");
+  });
+  // Ending a meeting stops the clock, so it always takes two taps -- there is no
+  // idle shortcut, since ending while idle is a no-op the button is disabled for.
+  endBtn.addEventListener("click", () => {
+    if (!endBtn.classList.contains("armed")) {
+      endBtn.classList.add("armed");
+      endBtn.textContent = "Confirm end";
+      endArmTimeout = setTimeout(disarmEnd, 3000);
+      return;
+    }
+    disarmEnd();
+    command("/api/control/end");
   });
   // Advancing discards a live timer's elapsed time with no way back, so while a
   // part is running or paused it takes two taps. Idle is the ordinary case

@@ -964,6 +964,29 @@ textarea {
   border-style: dashed;
 }
 
+/* End meeting: a full-width, quiet close. Neutral until armed, then amber like
+   every other confirmation. Faded out while idle, when there is nothing to end. */
+.action-end {
+  min-height: 46px;
+  border-color: var(--line-strong);
+  background: transparent;
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.action-end:hover:not(:disabled) {
+  border-color: rgba(255, 255, 255, 0.28);
+  color: var(--text);
+}
+
+.action-end.armed {
+  border-color: rgba(246, 196, 83, 0.55);
+  background: linear-gradient(180deg, #2a2416, #1d180f);
+  color: var(--amber);
+  outline: 2px solid rgba(246, 196, 83, 0.45);
+  outline-offset: 2px;
+}
+
 .action-danger {
   border-color: transparent;
   background: linear-gradient(180deg, #ff7f74, #f0564a);

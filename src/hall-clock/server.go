@@ -195,6 +195,7 @@ func (s *server) routes(publicURL string) (*http.ServeMux, error) {
 	mux.HandleFunc("POST /api/control/start", s.protect(s.handleStart))
 	mux.HandleFunc("POST /api/control/pause", s.protect(s.handlePause))
 	mux.HandleFunc("POST /api/control/reset", s.protect(s.handleReset))
+	mux.HandleFunc("POST /api/control/end", s.protect(s.handleEndMeeting))
 	mux.HandleFunc("POST /api/control/next", s.protect(s.handleNext))
 	mux.HandleFunc("POST /api/control/previous", s.protect(s.handlePrevious))
 	mux.HandleFunc("POST /api/control/adjust", s.protect(s.handleAdjust))
