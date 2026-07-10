@@ -174,22 +174,18 @@
           value="${Math.round(part.durationSeconds / 60)}"
           aria-label="Minutes"
         >
-        <span class="part-caption" aria-hidden="true">Closing bell (sec)</span>
-        <input
-          class="part-input part-closing"
-          data-field="closingSeconds"
-          data-index="${index}"
-          type="number"
-          min="0"
-          max="600"
-          inputmode="numeric"
-          value="${part.closingSeconds}"
-          aria-label="Closing bell seconds"
-        >
         <button data-remove="${index}" class="row-remove" type="button" aria-label="Remove ${escapeAttr(part.title)}">Remove</button>
       `;
       partsList.appendChild(row);
     });
+  }
+
+  // The closing bell (how many seconds before time is up the clock turns amber)
+  // is not editable here, so each part keeps whatever the import or the default
+  // gave it. Deriving it the way the WOL importer does keeps a hidden value sane
+  // whenever we have no better one to carry forward.
+  function derivedClosingSeconds(minutes) {
+    return Math.min(120, minutes * 30);
   }
 
   function readPartsFromForm() {
@@ -197,8 +193,17 @@
       const index = Number(input.dataset.index);
       const field = input.dataset.field;
       if (field === "title") parts[index].title = input.value;
-      if (field === "minutes") parts[index].durationSeconds = Number(input.value) * 60;
-      if (field === "closingSeconds") parts[index].closingSeconds = Number(input.value);
+      if (field === "minutes") {
+        const minutes = Number(input.value);
+        parts[index].durationSeconds = minutes * 60;
+        // A carried-over closing bell that no longer fits the shortened part
+        // would be clamped to the full duration server-side, painting the whole
+        // part amber. Nobody can see the field to fix that, so re-derive it.
+        const closing = parts[index].closingSeconds;
+        if (!(closing >= 0) || closing >= parts[index].durationSeconds) {
+          parts[index].closingSeconds = derivedClosingSeconds(minutes);
+        }
+      }
     });
   }
 
@@ -214,7 +219,7 @@
 
   document.getElementById("addPartBtn").addEventListener("click", () => {
     readPartsFromForm();
-    parts.push({ title: `Item ${parts.length + 1}`, durationSeconds: 300, closingSeconds: 60 });
+    parts.push({ title: `Item ${parts.length + 1}`, durationSeconds: 300, closingSeconds: derivedClosingSeconds(5) });
     renderParts();
   });
 
@@ -316,7 +321,7 @@
     readPartsFromForm();
     parts.splice(Number(index), 1);
     if (parts.length === 0) {
-      parts.push({ title: "Item 1", durationSeconds: 300, closingSeconds: 60 });
+      parts.push({ title: "Item 1", durationSeconds: 300, closingSeconds: derivedClosingSeconds(5) });
     }
     renderParts();
   });
