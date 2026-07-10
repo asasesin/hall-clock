@@ -918,16 +918,31 @@ textarea {
 }
 
 /* The +/- stepper lives inside the timer card, divided from the readout above it
-   so it reads as part of the clock rather than a separate panel. */
-.timer-stepper {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
+   so it reads as part of the clock rather than a separate panel. The "Adjust
+   time" label removes any doubt that the buttons change the clock by a minute
+   rather than set it to one. */
+.timer-adjust {
   margin-top: 16px;
   padding-top: 16px;
   border-top: 1px solid var(--line);
   position: relative;
   z-index: 1;
+}
+
+.stepper-label {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.timer-stepper {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
 }
 
 .timer-stepper .adjust-action {

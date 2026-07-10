@@ -23,19 +23,23 @@
         <div id="timeValue" class="control-time">00:00</div>
         <p id="meetingOvertime" class="card-overrun hidden" role="status"></p>
         <p id="nextPart" class="card-next"></p>
-        <div class="timer-stepper" aria-label="Adjust remaining time">
-          <button data-adjust="-60" class="action adjust-action" type="button" aria-label="Subtract 1 minute">
-            <span class="adjust-symbol">-</span>
-            <span class="adjust-label">1 min</span>
-          </button>
-          <button data-adjust="60" class="action adjust-action" type="button" aria-label="Add 1 minute">
-            <span class="adjust-symbol">+</span>
-            <span class="adjust-label">1 min</span>
-          </button>
+        <div class="timer-adjust">
+          <p class="stepper-label">Adjust time</p>
+          <div class="timer-stepper" aria-label="Adjust remaining time">
+            <button data-adjust="-60" class="action adjust-action" type="button" aria-label="Subtract 1 minute">
+              <span class="adjust-symbol">-</span>
+              <span class="adjust-label">1 min</span>
+            </button>
+            <button data-adjust="60" class="action adjust-action" type="button" aria-label="Add 1 minute">
+              <span class="adjust-symbol">+</span>
+              <span class="adjust-label">1 min</span>
+            </button>
+          </div>
         </div>
       </section>
 
       <section class="control-panel">
+        <p class="card-eyebrow">Controls</p>
         <div class="control-actions">
           <div class="primary-action-row">
             <button id="startBtn" class="action action-primary" type="button">Start</button>
