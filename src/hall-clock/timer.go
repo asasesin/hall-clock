@@ -189,19 +189,43 @@ func (s *server) syncActiveScheduleLocked(now time.Time) {
 	s.applyScheduleLocked(scheduleForMeetingType(activeMeetingType, s.effectiveMidweekScheduleLocked(now), s.state.CircuitOverseer, s.config.MidweekLanguage))
 }
 
-// bankOvertimeLocked records the overtime of the part the operator is leaving.
-// Only overtime is banked: finishing early does not pay back a part that ran
-// long, so the total only ever grows within a meeting.
+// currentOvertimeLocked is how far the current part is past its time as of now.
+// It reads the timer rather than s.state.OvertimeSeconds, so it does not depend
+// on a recalculate having just run — that hidden ordering requirement is what
+// once let a stale overrun be recorded.
+func (s *server) currentOvertimeLocked(now time.Time) int {
+	remaining := s.state.RemainingSeconds
+	if s.state.Status == StatusRunning {
+		remaining = s.remainingAt - int(now.Sub(s.startedAt).Seconds())
+	}
+	return max(0, -remaining)
+}
+
+// retireCurrentPartLocked records the overrun of the part the operator is
+// leaving. Only overtime is kept: finishing early does not pay back a part that
+// ran long.
 //
 // Called only from the two paths where a person leaves a part (changeTalk and
 // handleSelect), never from selectTalkLocked. Schedule rebuilds reselect parts
 // internally — a purge, an expiring override, a meeting-type swap — and none of
-// those are the operator finishing a talk. Both callers must recalculate first,
-// or state.OvertimeSeconds is whatever the last poll happened to leave there.
-func (s *server) bankOvertimeLocked() {
-	if s.state.OvertimeSeconds > 0 {
-		s.bankedOvertimeSeconds += s.state.OvertimeSeconds
+// those are the operator finishing a talk.
+func (s *server) retireCurrentPartLocked(now time.Time) {
+	if over := s.currentOvertimeLocked(now); over > 0 {
+		s.retiredOverruns = append(s.retiredOverruns, partOverrun{
+			talkID:  s.state.CurrentTalkID,
+			seconds: over,
+		})
 	}
+}
+
+// meetingOvertimeSecondsLocked is how far the whole meeting is behind: every
+// retired part's overrun, plus whatever the current part is over right now.
+func (s *server) meetingOvertimeSecondsLocked(now time.Time) int {
+	total := s.currentOvertimeLocked(now)
+	for _, overrun := range s.retiredOverruns {
+		total += overrun.seconds
+	}
+	return total
 }
 
 // hasTalkLocked reports whether a part is in the running schedule.
@@ -214,37 +238,34 @@ func (s *server) hasTalkLocked(talkID int) bool {
 	return false
 }
 
-// syncOvertimeSessionLocked clears the banked total when a new meeting begins.
-// A meeting is identified the same way stale ad-hoc parts are: by the most
-// recent configured start, minus the prestart window so setting up counts as
-// part of the meeting. Runs only while idle, so a total is never zeroed out
-// from under a meeting in progress.
-func (s *server) syncOvertimeSessionLocked(now time.Time) {
-	if s.state.Status != StatusIdle {
-		return
-	}
+// meetingSessionLocked identifies the meeting currently in progress, by the
+// most recent configured start minus the prestart window — so setting up counts
+// as part of the meeting. It is the one answer to "is this still the same
+// meeting", shared by everything that has to scope itself to one: the overtime
+// total and the ad-hoc parts. Reports false when no start is configured.
+func (s *server) meetingSessionLocked(now time.Time) (time.Time, bool) {
 	sessionStart, ok := latestMeetingStart(now, s.config.MeetingStarts)
 	if !ok {
-		return
+		return time.Time{}, false
 	}
-	session := sessionStart.Add(-time.Duration(s.config.PrestartSeconds) * time.Second)
+	return sessionStart.Add(-time.Duration(s.config.PrestartSeconds) * time.Second), true
+}
+
+// syncOvertimeSessionLocked drops the overtime of parts retired in an earlier
+// meeting. The caller reconciles only while idle, so a total is never zeroed
+// out from under a meeting in progress.
+func (s *server) syncOvertimeSessionLocked(session time.Time) {
 	if s.overtimeSession.Equal(session) {
 		return
 	}
 	s.overtimeSession = session
-	s.bankedOvertimeSeconds = 0
+	s.retiredOverruns = nil
 }
 
-// purgeStaleTemporaryPartsLocked drops ad-hoc parts left over from an earlier
-// meeting session. A part created before the most recent configured meeting
-// start (minus the prestart window, so parts added while preparing for a
-// meeting count as part of it) belongs to a previous congregation's meeting
-// and is removed. Runs only while idle so an in-progress timer is never
-// disturbed.
-func (s *server) purgeStaleTemporaryPartsLocked(now time.Time) {
-	if s.state.Status != StatusIdle {
-		return
-	}
+// purgeStaleTemporaryPartsLocked drops ad-hoc parts created before the current
+// meeting session: they belong to a previous congregation's meeting. The caller
+// reconciles only while idle, so an in-progress timer is never disturbed.
+func (s *server) purgeStaleTemporaryPartsLocked(cutoff time.Time) {
 	hasTemporary := false
 	for _, talk := range s.talks {
 		if talk.Temporary {
@@ -255,11 +276,6 @@ func (s *server) purgeStaleTemporaryPartsLocked(now time.Time) {
 	if !hasTemporary {
 		return
 	}
-	sessionStart, ok := latestMeetingStart(now, s.config.MeetingStarts)
-	if !ok {
-		return
-	}
-	cutoff := sessionStart.Add(-time.Duration(s.config.PrestartSeconds) * time.Second)
 
 	kept := make([]Talk, 0, len(s.talks))
 	removed := false
@@ -337,8 +353,15 @@ func (s *server) recalculateLocked(now time.Time) {
 	s.syncCircuitOverseerLocked(now)
 	s.syncScheduleOverrideLocked(now)
 	s.syncActiveScheduleLocked(now)
-	s.syncOvertimeSessionLocked(now)
-	s.purgeStaleTemporaryPartsLocked(now)
+	// Both the overtime total and the ad-hoc parts are scoped to one meeting, and
+	// both are reconciled only while idle. Derive the boundary once, here, so the
+	// two can never disagree about when a new meeting started.
+	if s.state.Status == StatusIdle {
+		if session, ok := s.meetingSessionLocked(now); ok {
+			s.syncOvertimeSessionLocked(session)
+			s.purgeStaleTemporaryPartsLocked(session)
+		}
+	}
 	s.state.Now = now
 	s.state.PrestartActive = false
 	s.state.PrestartRemaining = 0
