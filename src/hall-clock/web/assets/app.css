@@ -519,6 +519,19 @@ textarea {
   gap: 8px;
 }
 
+/* Picker and its add button share a row: the picker flexes to fill, the + sits
+   to its right at matching height. */
+.current-item-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.current-item-row .part-picker-button {
+  flex: 1;
+  min-width: 0;
+}
+
 
 .language-row select {
   width: 100%;
@@ -719,18 +732,17 @@ textarea {
   cursor: not-allowed;
 }
 
-/* A rare, secondary action: a small round + button that sits left under the
-   picker, so it never competes with the Current item selector or reads as an
-   empty drop-zone the way a full-width dashed bar did. Its accessible name and
-   tooltip carry the "Add temporary item" meaning the icon alone can't. */
+/* A rare, secondary action: a round + button beside the picker, so it never
+   competes with the Current item selector or reads as an empty drop-zone the
+   way a full-width dashed bar did. Its accessible name and tooltip carry the
+   "Add temporary item" meaning the icon alone can't. */
 .temporary-part-button {
   display: inline-flex;
+  flex: none;
   align-items: center;
   justify-content: center;
-  justify-self: start;
-  width: 38px;
-  height: 38px;
-  margin-top: 2px;
+  width: 48px;
+  height: 48px;
   border: 1px solid var(--line-strong);
   border-radius: 50%;
   background: transparent;
