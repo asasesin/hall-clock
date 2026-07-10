@@ -135,7 +135,13 @@
       }
       return state;
     } catch (error) {
-      tokenWarning.classList.remove("hidden");
+      // Only an auth failure means the token is wrong. The server also refuses
+      // legitimate requests -- advancing past the last part, changing CO mode
+      // mid-meeting -- and telling the operator to re-pair for those sends them
+      // chasing a problem that does not exist.
+      if (error.status === 401 || error.status === 403) {
+        tokenWarning.classList.remove("hidden");
+      }
       console.error(error);
       return null;
     }

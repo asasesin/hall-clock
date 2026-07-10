@@ -53,7 +53,11 @@
       body: JSON.stringify(body || {}),
     });
     if (!response.ok) {
-      throw new Error(await response.text());
+      // Carry the status: callers must tell "your token is bad" apart from an
+      // ordinary refusal like advancing past the last part of the meeting.
+      const error = new Error(await response.text());
+      error.status = response.status;
+      throw error;
     }
     return response.json();
   }
