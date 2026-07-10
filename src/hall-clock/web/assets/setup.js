@@ -153,18 +153,39 @@
       const row = document.createElement("div");
       row.className = "part-row";
       row.innerHTML = `
-        <label class="field">
-          <span>Title</span>
-          <input data-field="title" data-index="${index}" type="text" value="${escapeAttr(part.title)}">
-        </label>
-        <label class="field">
-          <span>Minutes</span>
-          <input data-field="minutes" data-index="${index}" type="number" min="1" max="120" value="${Math.round(part.durationSeconds / 60)}">
-        </label>
-        <label class="field">
-          <span>Closing bell (sec)</span>
-          <input data-field="closingSeconds" data-index="${index}" type="number" min="0" max="600" value="${part.closingSeconds}">
-        </label>
+        <input
+          class="part-input part-title"
+          data-field="title"
+          data-index="${index}"
+          type="text"
+          value="${escapeAttr(part.title)}"
+          aria-label="Item title"
+          placeholder="Item title"
+        >
+        <span class="part-caption" aria-hidden="true">Minutes</span>
+        <input
+          class="part-input part-minutes"
+          data-field="minutes"
+          data-index="${index}"
+          type="number"
+          min="1"
+          max="120"
+          inputmode="numeric"
+          value="${Math.round(part.durationSeconds / 60)}"
+          aria-label="Minutes"
+        >
+        <span class="part-caption" aria-hidden="true">Closing bell (sec)</span>
+        <input
+          class="part-input part-closing"
+          data-field="closingSeconds"
+          data-index="${index}"
+          type="number"
+          min="0"
+          max="600"
+          inputmode="numeric"
+          value="${part.closingSeconds}"
+          aria-label="Closing bell seconds"
+        >
         <button data-remove="${index}" class="row-remove" type="button" aria-label="Remove ${escapeAttr(part.title)}">Remove</button>
       `;
       partsList.appendChild(row);
