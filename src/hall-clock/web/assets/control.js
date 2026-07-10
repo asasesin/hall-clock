@@ -280,7 +280,7 @@
     clearTimeout(resetArmTimeout);
     resetArmTimeout = null;
     resetBtn.classList.remove("armed");
-    resetBtn.textContent = "Restart part";
+    resetBtn.textContent = "Restart time";
   }
 
   // The last item has nothing after it, so the button says so rather than
