@@ -1126,7 +1126,7 @@ textarea {
 
 .field input,
 .field select,
-.import-panel textarea {
+.manual-import textarea {
   width: 100%;
   border: 1px solid var(--line-strong);
   border-radius: 12px;
@@ -1212,13 +1212,13 @@ textarea {
 
 .field input:focus,
 .field select:focus,
-.import-panel textarea:focus {
+.manual-import textarea:focus {
   outline: none;
   border-color: rgba(57, 217, 138, 0.6);
   box-shadow: 0 0 0 3px rgba(57, 217, 138, 0.15);
 }
 
-.import-panel textarea {
+.manual-import textarea {
   min-height: 180px;
   margin: 8px 0 12px;
   resize: vertical;
