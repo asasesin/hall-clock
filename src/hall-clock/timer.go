@@ -125,13 +125,6 @@ func sameBaseSchedule(talks []Talk, base []Talk) bool {
 func (s *server) selectTalkLocked(talkID int) bool {
 	for _, talk := range s.talks {
 		if talk.ID == talkID {
-			// Moving on retires the current part, so whatever it ran over is now
-			// the meeting's problem. Re-selecting the part you are already on is a
-			// restart, not a departure, and banks nothing. Callers that can be in
-			// overtime must recalculate first so OvertimeSeconds is current.
-			if talk.ID != s.state.CurrentTalkID {
-				s.bankOvertimeLocked()
-			}
 			s.state.Status = StatusIdle
 			s.state.CurrentTalkID = talk.ID
 			s.state.CurrentTalkTitle = talk.Title
@@ -200,12 +193,25 @@ func (s *server) syncActiveScheduleLocked(now time.Time) {
 // Only overtime is banked: finishing early does not pay back a part that ran
 // long, so the total only ever grows within a meeting.
 //
-// Callers must recalculate first, or state.OvertimeSeconds is whatever the last
-// poll happened to leave there.
+// Called only from the two paths where a person leaves a part (changeTalk and
+// handleSelect), never from selectTalkLocked. Schedule rebuilds reselect parts
+// internally — a purge, an expiring override, a meeting-type swap — and none of
+// those are the operator finishing a talk. Both callers must recalculate first,
+// or state.OvertimeSeconds is whatever the last poll happened to leave there.
 func (s *server) bankOvertimeLocked() {
 	if s.state.OvertimeSeconds > 0 {
 		s.bankedOvertimeSeconds += s.state.OvertimeSeconds
 	}
+}
+
+// hasTalkLocked reports whether a part is in the running schedule.
+func (s *server) hasTalkLocked(talkID int) bool {
+	for _, talk := range s.talks {
+		if talk.ID == talkID {
+			return true
+		}
+	}
+	return false
 }
 
 // syncOvertimeSessionLocked clears the banked total when a new meeting begins.

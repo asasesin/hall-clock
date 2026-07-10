@@ -150,3 +150,24 @@ func TestMeetingOvertimeSurvivesWithinTheSameMeeting(t *testing.T) {
 		t.Fatalf("banked overtime was cleared during the meeting, got %ds", got)
 	}
 }
+
+// Only a person leaving a part banks its overtime. Schedule rebuilds reselect
+// parts internally, and none of those are the operator finishing a talk.
+func TestMeetingOvertimeNotBankedByScheduleRebuild(t *testing.T) {
+	h := newOverrideHarness(t)
+
+	h.runPartOver(45 * time.Second)
+	before := h.state().MeetingOvertimeSeconds
+	if before != 45 {
+		t.Fatalf("setup: want 45s live overtime, got %ds", before)
+	}
+
+	// Saving an edited schedule mid-meeting rebuilds the running talks.
+	h.saveEditedSchedule(120)
+
+	// The part is still the one being spoken: nothing has been retired, so the
+	// total is still just this part's live overtime, banked nothing.
+	if h.srv.bankedOvertimeSeconds != 0 {
+		t.Fatalf("a schedule rebuild banked %ds", h.srv.bankedOvertimeSeconds)
+	}
+}
