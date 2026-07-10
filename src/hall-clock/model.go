@@ -42,7 +42,19 @@ type Config struct {
 	// a single meeting session and auto-clears (see circuitOverseerDuration).
 	// Persisted so it survives a reboot mid-visit and still expires on schedule.
 	CircuitOverseerExpiresAt time.Time `json:"circuitOverseerExpiresAt,omitempty"`
-	Schedule                 []Talk    `json:"schedule"`
+	// Schedule is the congregation's baseline midweek program: the last WOL
+	// import, applied template, or the built-in default. Operator edits never
+	// land here — they go to ScheduleOverride, so the baseline stays recoverable
+	// once an edit expires.
+	Schedule []Talk `json:"schedule"`
+	// ScheduleOverride is a hand-edited midweek program that replaces Schedule
+	// until ScheduleOverrideExpiresAt passes. It scopes an edit to one meeting
+	// session, so a second congregation sharing the box the same day starts from
+	// the baseline (see scheduleOverrideDuration), exactly like CO mode.
+	ScheduleOverride []Talk `json:"scheduleOverride,omitempty"`
+	// ScheduleOverrideExpiresAt is when ScheduleOverride stops applying.
+	// Persisted so it survives a reboot mid-meeting and still expires on time.
+	ScheduleOverrideExpiresAt time.Time `json:"scheduleOverrideExpiresAt,omitempty"`
 }
 
 type MeetingStart struct {
@@ -79,12 +91,15 @@ type State struct {
 	OvertimeSeconds          int            `json:"overtimeSeconds"`
 	CircuitOverseer          bool           `json:"circuitOverseer"`
 	CircuitOverseerExpiresAt *time.Time     `json:"circuitOverseerExpiresAt,omitempty"`
-	MidweekLanguage          string         `json:"midweekLanguage,omitempty"`
-	Schedule                 []Talk         `json:"schedule"`
-	Now                      time.Time      `json:"now"`
-	Bell                     int64          `json:"bell"`
-	PairingActive            bool           `json:"pairingActive"`
-	PairingExpiresAt         *time.Time     `json:"pairingExpiresAt,omitempty"`
+	// ScheduleOverrideExpiresAt lets the UI show how long a hand-edited schedule
+	// still applies before the baseline returns; nil when no edit is active.
+	ScheduleOverrideExpiresAt *time.Time `json:"scheduleOverrideExpiresAt,omitempty"`
+	MidweekLanguage           string     `json:"midweekLanguage,omitempty"`
+	Schedule                  []Talk     `json:"schedule"`
+	Now                       time.Time  `json:"now"`
+	Bell                      int64      `json:"bell"`
+	PairingActive             bool       `json:"pairingActive"`
+	PairingExpiresAt          *time.Time `json:"pairingExpiresAt,omitempty"`
 }
 
 type clockTime struct {

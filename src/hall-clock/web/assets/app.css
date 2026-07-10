@@ -1126,7 +1126,8 @@ textarea {
 
 .field input,
 .field select,
-.manual-import textarea {
+.manual-import textarea,
+.part-input {
   width: 100%;
   border: 1px solid var(--line-strong);
   border-radius: 12px;
@@ -1138,7 +1139,8 @@ textarea {
 
 /* Keep every control the same height so labels line up across a row. */
 .field input,
-.field select {
+.field select,
+.part-input {
   min-height: 46px;
 }
 
@@ -1212,7 +1214,8 @@ textarea {
 
 .field input:focus,
 .field select:focus,
-.manual-import textarea:focus {
+.manual-import textarea:focus,
+.part-input:focus {
   outline: none;
   border-color: rgba(57, 217, 138, 0.6);
   box-shadow: 0 0 0 3px rgba(57, 217, 138, 0.15);
@@ -1301,18 +1304,15 @@ textarea {
   gap: 10px;
 }
 
-.start-row {
-  display: grid;
-  grid-template-columns: 126px 112px minmax(150px, 0.9fr) minmax(200px, 1.2fr) auto;
-  gap: 8px;
-}
-
 .starts-list {
   display: grid;
   gap: 8px;
 }
 
 .start-row {
+  display: grid;
+  grid-template-columns: 126px 112px minmax(150px, 0.9fr) minmax(200px, 1.2fr) auto;
+  gap: 8px;
   align-items: center;
   border: 1px solid rgba(255, 255, 255, 0.06);
   border-radius: 12px;
@@ -1324,9 +1324,25 @@ textarea {
   margin: 0;
 }
 
+.parts-list-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px 140px auto;
+  gap: 10px;
+  padding: 0 12px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
+}
+
+.parts-list-head span:last-child {
+  visibility: hidden;
+}
+
 .part-row {
   display: grid;
-  grid-template-columns: 1fr 120px 120px auto;
+  grid-template-columns: minmax(0, 1fr) 112px 140px auto;
   gap: 10px;
   align-items: center;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -1335,8 +1351,32 @@ textarea {
   background: rgba(255, 255, 255, 0.015);
 }
 
-.part-row .field {
-  margin: 0;
+.part-title {
+  min-width: 0;
+}
+
+/* Closing bell is derived by the WOL import, not chosen. Show it, but render it
+   as text so it never reads as a field the operator is expected to fill in.
+   Height matches .part-input so the row stays on one baseline. */
+.part-readonly {
+  display: flex;
+  align-items: center;
+  min-height: 46px;
+  padding: 0 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
+}
+
+/* The shared column header names these fields on wide screens. It is hidden at
+   the narrow breakpoint, where these captions take over — a bare number box
+   gives no clue whether it wants minutes or closing-bell seconds. */
+.part-caption {
+  display: none;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  text-transform: uppercase;
 }
 
 /* Quiet per-row delete: neutral by default, only turns red on hover/focus so
@@ -1608,6 +1648,33 @@ textarea {
 
   .part-row {
     grid-template-columns: 1fr;
+  }
+
+  .part-input,
+  .part-readonly,
+  .row-remove {
+    grid-column: 1 / -1;
+  }
+
+  .part-readonly {
+    min-height: 0;
+    padding: 0;
+  }
+
+  .row-remove {
+    width: 100%;
+    justify-self: stretch;
+  }
+
+  .parts-list-head {
+    display: none;
+  }
+
+  /* Header is gone here, so name each number field inline instead. */
+  .part-caption {
+    display: block;
+    grid-column: 1 / -1;
+    margin-bottom: -4px;
   }
 
   .pair-actions {

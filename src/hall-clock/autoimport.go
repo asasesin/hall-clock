@@ -222,7 +222,7 @@ func (s *server) applyAutoImportedScheduleLocked(now time.Time, source autoImpor
 			}
 		}
 	}
-	s.config.Schedule = schedule
+	s.setBaselineScheduleLocked(schedule)
 	s.applyActiveScheduleChangeLocked(now)
 	return s.config, s.snapshotLocked(), true
 }
@@ -261,7 +261,7 @@ func (s *server) applyCachedMidweekLanguageScheduleLocked(now time.Time, languag
 	s.config.MidweekURL = cached.URL
 	s.config.MidweekLanguage = language
 	s.config.MidweekImportedWeek = cached.ImportedWeek
-	s.config.Schedule = append([]Talk(nil), cached.Schedule...)
+	s.setBaselineScheduleLocked(append([]Talk(nil), cached.Schedule...))
 	normalizeSchedule(s.config.Schedule)
 	s.state.MidweekLanguage = language
 	s.applyActiveScheduleChangeLocked(now)
@@ -308,7 +308,7 @@ func (s *server) importMidweekLanguage(ctx context.Context, now time.Time, langu
 	}
 	s.config.MidweekLanguageSources[language] = sourceURL
 	s.storeMidweekLanguageScheduleLocked(language, importedWeek, sourceURL, schedule)
-	s.config.Schedule = append([]Talk(nil), schedule...)
+	s.setBaselineScheduleLocked(append([]Talk(nil), schedule...))
 	s.applyActiveScheduleChangeLocked(now)
 	return s.config, s.snapshotLocked(), true, ""
 }
@@ -578,7 +578,7 @@ func parseMidweekTimings(input string) ([]Talk, error) {
 			ID:       len(talks) + 1,
 			Title:    title,
 			Duration: minutes * 60,
-			Closing:  min(120, minutes*30),
+			Closing:  derivedClosingSeconds(minutes),
 		})
 		previousTitle = ""
 	}

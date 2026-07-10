@@ -5,24 +5,132 @@ import (
 	"time"
 )
 
+// sessionWindow is how long a setting that belongs to one meeting session stays
+// in effect after the operator turns it on: circuit-overseer mode and a
+// hand-edited schedule both use it, so a box shared by congregations hands the
+// next meeting a clean slate. The two must stay equal — a CO visit and the
+// edited program it runs against have to expire together.
+const sessionWindow = 3 * time.Hour
+
+// sessionWindowActive reports whether a session-scoped setting is still in
+// effect. A zero expiry means "never turned on".
+func sessionWindowActive(expiresAt time.Time, now time.Time) bool {
+	return !expiresAt.IsZero() && now.Before(expiresAt)
+}
+
+// sessionWindowExpiryPtr returns the expiry for the state snapshot, or nil when
+// the setting is not in effect (so the UI can show/omit a countdown).
+func sessionWindowExpiryPtr(expiresAt time.Time, now time.Time) *time.Time {
+	if !sessionWindowActive(expiresAt, now) {
+		return nil
+	}
+	e := expiresAt
+	return &e
+}
+
 // circuitOverseerDuration is how long the CO-visit schedule stays active after
 // the operator turns it on, so it applies to one meeting session and then
 // clears itself (a box shared by congregations without a CO visit is unaffected).
-const circuitOverseerDuration = 3 * time.Hour
+const circuitOverseerDuration = sessionWindow
 
 // circuitOverseerActive reports whether CO mode is currently in effect.
 func circuitOverseerActive(expiresAt time.Time, now time.Time) bool {
-	return !expiresAt.IsZero() && now.Before(expiresAt)
+	return sessionWindowActive(expiresAt, now)
 }
 
 // circuitOverseerExpiryPtr returns the expiry for the state snapshot, or nil
 // when CO mode is not active (so the UI can show/omit a countdown).
 func circuitOverseerExpiryPtr(expiresAt time.Time, now time.Time) *time.Time {
-	if !circuitOverseerActive(expiresAt, now) {
-		return nil
+	return sessionWindowExpiryPtr(expiresAt, now)
+}
+
+// scheduleOverrideDuration is how long a hand-edited schedule stays in effect
+// after the operator saves it, so the edit applies to one meeting session and
+// then clears itself. A box shared by congregations gives the next meeting the
+// baseline program rather than the previous congregation's tweaks.
+const scheduleOverrideDuration = sessionWindow
+
+// setBaselineScheduleLocked installs a new baseline midweek program (an import,
+// a template, or a language switch) and drops any hand-edited override: the
+// operator asked for this program, so a stale edit must not keep shadowing it.
+//
+// This only updates config. The caller must follow with
+// applyActiveScheduleChangeLocked to rebuild the running talks.
+func (s *server) setBaselineScheduleLocked(schedule []Talk) {
+	s.config.Schedule = schedule
+	s.config.ScheduleOverride = nil
+	s.config.ScheduleOverrideExpiresAt = time.Time{}
+}
+
+// scheduleOverrideApplies is the single authority on whether a hand-edited
+// schedule governs. It is deliberately not a pure function of the clock: an
+// edit that was governing when the meeting started keeps governing until the
+// timer returns to idle, because the program on the wall must never change
+// parts under the brother who is speaking. Once idle, the window decides.
+//
+// Every read of the midweek program goes through here. Splitting this decision
+// across a time-only check and an idle-gated sweep is what let a running
+// meeting snap back to the baseline mid-part.
+func scheduleOverrideApplies(config Config, status TimerStatus, now time.Time) bool {
+	if len(config.ScheduleOverride) == 0 {
+		return false
 	}
-	e := expiresAt
-	return &e
+	if status != StatusIdle {
+		return true
+	}
+	return sessionWindowActive(config.ScheduleOverrideExpiresAt, now)
+}
+
+// effectiveMidweekSchedule is the midweek program the clock should run right
+// now: the operator's edit while it governs, and the congregation's baseline
+// once it no longer does.
+func effectiveMidweekSchedule(config Config, status TimerStatus, now time.Time) []Talk {
+	if scheduleOverrideApplies(config, status, now) {
+		return config.ScheduleOverride
+	}
+	return config.Schedule
+}
+
+func (s *server) effectiveMidweekScheduleLocked(now time.Time) []Talk {
+	return effectiveMidweekSchedule(s.config, s.state.Status, now)
+}
+
+func (s *server) scheduleOverrideAppliesLocked(now time.Time) bool {
+	return scheduleOverrideApplies(s.config, s.state.Status, now)
+}
+
+// derivedClosingSeconds is the WOL import's definition of a part's closing
+// bell: how many seconds before time runs out the clock turns amber. It is the
+// only place the rule is written down — parseMidweekTimings and every save go
+// through it.
+func derivedClosingSeconds(minutes int) int {
+	return min(120, minutes*30)
+}
+
+// applyImportedClosingSeconds overwrites the closing bell on a submitted
+// schedule. The operator sees the value but cannot edit it: the import defines
+// it, so a save must never carry a client's idea of what it should be.
+//
+// Parts are matched to the baseline by title, which is what the import names
+// them. A renamed part, an added part, or one whose bell no longer fits its
+// shortened duration falls back to the import's own formula — a bell as long as
+// the part would paint the whole thing amber.
+func applyImportedClosingSeconds(schedule []Talk, baseline []Talk) {
+	imported := make(map[string]int, len(baseline))
+	for _, talk := range baseline {
+		imported[closingKey(talk.Title)] = talk.Closing
+	}
+	for i := range schedule {
+		closing, ok := imported[closingKey(schedule[i].Title)]
+		if !ok || closing >= schedule[i].Duration {
+			closing = derivedClosingSeconds(schedule[i].Duration / 60)
+		}
+		schedule[i].Closing = clamp(closing, 0, schedule[i].Duration)
+	}
+}
+
+func closingKey(title string) string {
+	return strings.ToLower(strings.TrimSpace(title))
 }
 
 func defaultSchedule() []Talk {
