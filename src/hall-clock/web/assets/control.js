@@ -89,9 +89,9 @@
 
     const schedule = state.schedule || [];
     const index = schedule.findIndex((talk) => talk.id === state.currentTalkId);
-    partPosition.textContent = prestart ? (state.prestartLabel || "Meeting starts soon") : index >= 0 ? `Part ${index + 1} of ${schedule.length}` : "Schedule";
+    partPosition.textContent = prestart ? (state.prestartLabel || "Meeting starts soon") : index >= 0 ? `Item ${index + 1} of ${schedule.length}` : "Schedule";
     const next = index >= 0 ? schedule[index + 1] : undefined;
-    nextPart.textContent = next ? `Next: ${next.title}` : "Last part of the meeting";
+    nextPart.textContent = next ? `Next: ${next.title}` : "Last item of the meeting";
     renderPartPicker(schedule, state.currentTalkId);
 
     if (state.bell !== lastBell) {
@@ -186,12 +186,12 @@
         if (rearmed) {
           rearmed.dataset.originalHtml = rearmed.innerHTML;
           rearmed.classList.add("armed");
-          rearmed.textContent = "Confirm part";
+          rearmed.textContent = "Confirm item";
         }
       }
     }
     const current = schedule.find((talk) => talk.id === currentId);
-    currentPartTitle.textContent = current ? current.title : "Select part";
+    currentPartTitle.textContent = current ? current.title : "Select item";
     currentPartDuration.textContent = current ? `${Math.round(current.durationSeconds / 60)} min` : "";
     partPickerList.querySelectorAll(".part-picker-option").forEach((button) => {
       button.classList.toggle("selected", button.dataset.talkId === String(currentId));
@@ -299,7 +299,7 @@
     }
     const button = event.target.closest("[data-talk-id]");
     if (!button) return;
-    guardedPartCommand(button, "Confirm part", () => {
+    guardedPartCommand(button, "Confirm item", () => {
       closePartPicker();
       command("/api/control/select", { talkId: Number(button.dataset.talkId) });
     });
@@ -313,7 +313,7 @@
   });
   adhocPartPanel.addEventListener("submit", (event) => {
     event.preventDefault();
-    const title = adhocPartTitleInput.value.trim() || "Additional Part";
+    const title = adhocPartTitleInput.value.trim() || "Additional item";
     const minutes = Math.max(1, Math.min(120, Number(adhocPartMinutesInput.value || 5)));
     closeAdhocPartPanel();
     command("/api/control/adhoc-part", { title, seconds: minutes * 60 });
@@ -360,7 +360,7 @@
       if (languageStatus) {
         languageStatus.classList.remove("error");
         languageStatus.classList.remove("hidden");
-        languageStatus.textContent = `Switching to ${languageName(language)} parts...`;
+        languageStatus.textContent = `Switching to ${languageName(language)} items...`;
       }
       try {
         const response = await fetch("/api/control/midweek-language", {
@@ -380,7 +380,7 @@
         if (languageStatus) {
           languageStatus.classList.remove("error");
           languageStatus.classList.remove("hidden");
-          languageStatus.textContent = `${languageName(language)} parts applied.`;
+          languageStatus.textContent = `${languageName(language)} items applied.`;
         }
       } catch (error) {
         console.error(error);

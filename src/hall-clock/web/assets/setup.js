@@ -193,7 +193,7 @@
 
   document.getElementById("addPartBtn").addEventListener("click", () => {
     readPartsFromForm();
-    parts.push({ title: `Part ${parts.length + 1}`, durationSeconds: 300, closingSeconds: 60 });
+    parts.push({ title: `Item ${parts.length + 1}`, durationSeconds: 300, closingSeconds: 60 });
     renderParts();
   });
 
@@ -260,7 +260,7 @@
         await refreshMeetingType();
       }
       tokenWarning.classList.add("hidden");
-      saveStatus.textContent = apply ? "Imported and saved" : `Previewed ${parts.length} parts`;
+      saveStatus.textContent = apply ? "Imported and saved" : `Previewed ${parts.length} items`;
     } catch (error) {
       tokenWarning.classList.remove("hidden");
       saveStatus.textContent = "Could not import URL";
@@ -281,7 +281,7 @@
         await refreshMeetingType();
       }
       tokenWarning.classList.add("hidden");
-      saveStatus.textContent = apply ? "Imported and saved" : `Parsed ${parts.length} parts`;
+      saveStatus.textContent = apply ? "Imported and saved" : `Parsed ${parts.length} items`;
     } catch (error) {
       tokenWarning.classList.remove("hidden");
       saveStatus.textContent = "Could not parse pasted timings";
@@ -295,7 +295,7 @@
     readPartsFromForm();
     parts.splice(Number(index), 1);
     if (parts.length === 0) {
-      parts.push({ title: "Part 1", durationSeconds: 300, closingSeconds: 60 });
+      parts.push({ title: "Item 1", durationSeconds: 300, closingSeconds: 60 });
     }
     renderParts();
   });
