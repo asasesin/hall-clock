@@ -471,11 +471,6 @@ textarea {
   z-index: 1;
 }
 
-.language-panel {
-  display: grid;
-  gap: 8px;
-}
-
 .language-row {
   display: grid;
   gap: 8px;
@@ -483,6 +478,14 @@ textarea {
   font-size: 12px;
   font-weight: 800;
   text-align: left;
+}
+
+#partsPanel .language-row {
+  margin-bottom: 4px;
+}
+
+#partsPanel .co-row {
+  margin-top: 4px;
 }
 
 .part-picker-field {
