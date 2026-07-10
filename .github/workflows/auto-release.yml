@@ -118,8 +118,5 @@ jobs:
               --target "$TARGET" \
               --title "$TAG" \
               --generate-notes \
-              dist/hall-clock-linux-arm64 \
-              dist/hall-clock-linux-armv7 \
-              dist/hall-clock-linux-armv6 \
-              dist/SHA256SUMS
+              dist/*
           fi
