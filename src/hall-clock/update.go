@@ -212,7 +212,9 @@ func (s *server) handleUpdateStart(w http.ResponseWriter, r *http.Request) {
 
 	// Write-then-rename so the watching .path unit never sees a partial file.
 	tmp := s.updateTriggerPath + ".tmp"
+	os.Remove(tmp)
 	if err := os.WriteFile(tmp, []byte("update\n"), 0o644); err != nil {
+		os.Remove(tmp)
 		log.Printf("update: could not stage trigger: %v", err)
 		http.Error(w, "could not request an update", http.StatusInternalServerError)
 		return

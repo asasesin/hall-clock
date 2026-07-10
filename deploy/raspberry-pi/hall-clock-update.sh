@@ -23,6 +23,7 @@ APP_DIR="/opt/hall-clock"
 STATE_DIR="/var/lib/hall-clock"
 BIN="${APP_DIR}/hall-clock"
 PREVIOUS="${APP_DIR}/hall-clock.previous"
+DEPLOY_ASSET="hall-clock-raspberry-pi.tar.gz"
 TRIGGER="${STATE_DIR}/update-requested"
 STATUS="${STATE_DIR}/update-status.json"
 SOCKET="/run/hall-clock/app.sock"
@@ -30,6 +31,8 @@ SERVICE="hall-clock.service"
 REPO="asasesin/hall-clock"
 ENV_FILE="/etc/hall-clock/update.env"
 LOCK="${STATE_DIR}/update.lock"
+UNIT_DIR="/etc/systemd/system"
+CADDY_DIR="/etc/caddy"
 
 log() { echo "hall-clock-update: $*"; }
 
@@ -170,6 +173,7 @@ cd "$staging"
 
 base="https://github.com/${REPO}/releases/download/${latest}"
 curl -fsSL --max-time 120 -o "$asset" "${base}/${asset}" || fail "download failed"
+curl -fsSL --max-time 120 -o "$DEPLOY_ASSET" "${base}/${DEPLOY_ASSET}" || fail "deploy bundle download failed"
 curl -fsSL --max-time 30 -o SHA256SUMS "${base}/SHA256SUMS" || fail "download failed"
 
 # Anything that can tamper with the download owns a box sitting in a public
@@ -177,12 +181,37 @@ curl -fsSL --max-time 30 -o SHA256SUMS "${base}/SHA256SUMS" || fail "download fa
 if ! grep " ${asset}\$" SHA256SUMS | sha256sum -c - >/dev/null 2>&1; then
   fail "checksum mismatch for ${asset}"
 fi
+if ! grep " ${DEPLOY_ASSET}\$" SHA256SUMS | sha256sum -c - >/dev/null 2>&1; then
+  fail "checksum mismatch for ${DEPLOY_ASSET}"
+fi
+
+mkdir deploy
+tar -xzf "$DEPLOY_ASSET" -C deploy
 
 chmod 0755 "$asset"
 chown pi:pi "$asset"
 
 cp -p "$BIN" "$PREVIOUS"
 mv -f "$asset" "$BIN"
+
+install -m 0644 deploy/hall-clock.service "$UNIT_DIR/hall-clock.service"
+install -m 0644 deploy/hall-clock-kiosk.service "$UNIT_DIR/hall-clock-kiosk.service"
+install -m 0644 deploy/hall-clock-update.service "$UNIT_DIR/hall-clock-update.service"
+install -m 0644 deploy/hall-clock-update-check.service "$UNIT_DIR/hall-clock-update-check.service"
+install -m 0644 deploy/hall-clock-update.timer "$UNIT_DIR/hall-clock-update.timer"
+install -m 0644 deploy/hall-clock-update.path "$UNIT_DIR/hall-clock-update.path"
+install -m 0644 deploy/hall-clock-housekeeping.service "$UNIT_DIR/hall-clock-housekeeping.service"
+install -m 0644 deploy/hall-clock-housekeeping.timer "$UNIT_DIR/hall-clock-housekeeping.timer"
+install -m 0755 deploy/hall-clock-kiosk.sh "$APP_DIR/hall-clock-kiosk.sh"
+install -m 0755 deploy/hall-clock-update.sh "$APP_DIR/hall-clock-update.sh"
+install -m 0755 deploy/hall-clock-housekeeping.sh "$APP_DIR/hall-clock-housekeeping.sh"
+if [ -d "$CADDY_DIR" ]; then
+  install -m 0644 deploy/Caddyfile "$CADDY_DIR/Caddyfile"
+fi
+systemctl daemon-reload
+systemctl enable hall-clock-update.timer hall-clock-update.path hall-clock-housekeeping.timer >/dev/null
+systemctl restart hall-clock-update.timer hall-clock-update.path hall-clock-housekeeping.timer
+systemctl try-restart caddy.service >/dev/null 2>&1 || true
 
 rollback() {
   log "rolling back to ${current}"
@@ -206,6 +235,7 @@ for _ in $(seq 1 15); do
     log "updated to ${latest}"
     current="$latest"
     write_status updated "Updated to ${latest}"
+    systemctl try-restart hall-clock-kiosk.service >/dev/null 2>&1 || true
     exit 0
   fi
   sleep 1

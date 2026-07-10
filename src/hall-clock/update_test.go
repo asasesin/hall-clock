@@ -136,6 +136,35 @@ func TestUpdateStartWritesTriggerFile(t *testing.T) {
 	}
 }
 
+func TestUpdateStartRemovesStaleTriggerTempFile(t *testing.T) {
+	version = "v1.0.0"
+	t.Cleanup(func() { version = "dev" })
+
+	srv, mux, trigger := updateTestServer(t, "v1.1.0", nil)
+	if err := os.WriteFile(trigger+".tmp", []byte("stale"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/update", nil)
+	req.Header.Set("X-Wall-Clock-Token", srv.config.ControlToken)
+	res := httptest.NewRecorder()
+	mux.ServeHTTP(res, req)
+
+	if res.Code != http.StatusAccepted {
+		t.Fatalf("expected 202, got %d: %s", res.Code, res.Body)
+	}
+	data, err := os.ReadFile(trigger)
+	if err != nil {
+		t.Fatalf("expected trigger file: %v", err)
+	}
+	if string(data) != "update\n" {
+		t.Fatalf("expected fresh trigger contents, got %q", data)
+	}
+	if _, err := os.Stat(trigger + ".tmp"); !os.IsNotExist(err) {
+		t.Fatal("stale staging file should have been removed")
+	}
+}
+
 func TestUpdateStartRequiresToken(t *testing.T) {
 	_, mux, trigger := updateTestServer(t, "v1.1.0", nil)
 
