@@ -51,8 +51,20 @@ func newServer(configPath string) (*server, error) {
 		config.Schedule = defaultSchedule()
 	}
 	normalizeSchedule(config.Schedule)
-	if isWeekendSchedule(config.Schedule) {
+	baselineRejected := isWeekendSchedule(config.Schedule)
+	if baselineRejected {
 		config.Schedule = defaultSchedule()
+	}
+	if len(config.ScheduleOverride) > 0 {
+		normalizeSchedule(config.ScheduleOverride)
+		// The override and its baseline are a pair: an edit is only meaningful
+		// against the program it was derived from. If we had to throw the baseline
+		// away, the edit goes with it rather than shadowing a default the operator
+		// never chose.
+		if baselineRejected || isWeekendSchedule(config.ScheduleOverride) {
+			config.ScheduleOverride = nil
+			config.ScheduleOverrideExpiresAt = time.Time{}
+		}
 	}
 	if strings.TrimSpace(config.DeviceName) == "" {
 		config.DeviceName = "Hall Clock"
@@ -102,7 +114,7 @@ func newServer(configPath string) (*server, error) {
 	now := time.Now()
 	coActive := circuitOverseerActive(config.CircuitOverseerExpiresAt, now)
 	activeMeetingType := meetingTypeForTime(now)
-	activeSchedule := scheduleForMeetingType(activeMeetingType, config.Schedule, coActive, config.MidweekLanguage)
+	activeSchedule := scheduleForMeetingType(activeMeetingType, effectiveMidweekSchedule(config, StatusIdle, now), coActive, config.MidweekLanguage)
 	first := activeSchedule[0]
 	return &server{
 		configPath: configPath,
@@ -328,6 +340,7 @@ func (s *server) snapshotLocked() State {
 	out.Schedule = append([]Talk(nil), s.talks...)
 	out.MeetingStarts = append([]MeetingStart(nil), s.config.MeetingStarts...)
 	out.MidweekLanguage = s.config.MidweekLanguage
+	out.ScheduleOverrideExpiresAt = sessionWindowExpiryPtr(s.config.ScheduleOverrideExpiresAt, s.state.Now)
 	out.PairingActive = true
 	out.PairingExpiresAt = nil
 	return out

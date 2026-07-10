@@ -657,6 +657,66 @@ func TestSaveConfigPreservesTemporaryParts(t *testing.T) {
 	}
 }
 
+// A saved config carrying a stale meeting type (the operator last applied the
+// weekend template) must not overwrite the calendar-derived active meeting
+// type, or the edited schedule is silently dropped for a running timer.
+func TestSaveConfigUpdatesRunningCurrentDurationWithStaleMeetingType(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	fixed := time.Date(2026, 7, 9, 19, 0, 0, 0, time.UTC)
+	srv.clock = func() time.Time { return fixed }
+	mux, err := srv.routes("")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	do := func(path, body string) State {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.Header.Set("X-Wall-Clock-Token", srv.config.ControlToken)
+		res := httptest.NewRecorder()
+		mux.ServeHTTP(res, req)
+		if res.Code != http.StatusOK {
+			t.Fatalf("%s returned %d: %s", path, res.Code, res.Body.String())
+		}
+		var state State
+		if err := json.Unmarshal(res.Body.Bytes(), &state); err != nil {
+			t.Fatal(err)
+		}
+		return state
+	}
+
+	do("/api/control/start", "")
+
+	config := Config{
+		DeviceName:       "Hall Clock",
+		MeetingType:      "weekend",
+		MeetingStartTime: "19:00",
+		MeetingStarts:    defaultMeetingStarts("19:00"),
+		PrestartSeconds:  300,
+		Schedule: []Talk{
+			{Title: "Opening Comments", Duration: 120, Closing: 30},
+			{Title: "Treasures From God's Word", Duration: 600, Closing: 120},
+		},
+	}
+	body, err := json.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	res := do("/api/config", string(body))
+
+	if res.MeetingType != "midweek" {
+		t.Fatalf("expected active meeting type to stay calendar-derived, got %q", res.MeetingType)
+	}
+	if res.DurationSeconds != 120 || res.RemainingSeconds != 120 {
+		t.Fatalf("expected running timer to adopt edited duration, got duration=%d remaining=%d", res.DurationSeconds, res.RemainingSeconds)
+	}
+	if res.Schedule[0].Duration != 120 {
+		t.Fatalf("expected control schedule to reflect edited minutes, got %+v", res.Schedule[0])
+	}
+}
+
 func TestMoveRejectsSavedScheduleParts(t *testing.T) {
 	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
 	if err != nil {

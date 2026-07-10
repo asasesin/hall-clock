@@ -154,7 +154,26 @@ func (s *server) syncCircuitOverseerLocked(now time.Time) {
 		return
 	}
 	s.state.CircuitOverseer = active
-	s.applyScheduleLocked(scheduleForMeetingType(meetingTypeForTime(now), s.config.Schedule, active, s.config.MidweekLanguage))
+	s.applyScheduleLocked(scheduleForMeetingType(meetingTypeForTime(now), s.effectiveMidweekScheduleLocked(now), active, s.config.MidweekLanguage))
+}
+
+// syncScheduleOverrideLocked retires a hand-edited schedule once it stops
+// governing, restoring the congregation's baseline program so a second meeting
+// on a shared box does not inherit the previous one's edits.
+//
+// scheduleOverrideApplies is the only expiry test here: it holds an override in
+// place for a running meeting, so reaching the clear below already implies the
+// timer is idle and no part can be disturbed mid-talk.
+func (s *server) syncScheduleOverrideLocked(now time.Time) {
+	if len(s.config.ScheduleOverride) == 0 {
+		return
+	}
+	if s.scheduleOverrideAppliesLocked(now) {
+		return
+	}
+	s.config.ScheduleOverride = nil
+	s.config.ScheduleOverrideExpiresAt = time.Time{}
+	s.applyScheduleLocked(scheduleForMeetingType(meetingTypeForTime(now), s.config.Schedule, s.state.CircuitOverseer, s.config.MidweekLanguage))
 }
 
 func (s *server) syncActiveScheduleLocked(now time.Time) {
@@ -167,7 +186,7 @@ func (s *server) syncActiveScheduleLocked(now time.Time) {
 	}
 	s.state.MeetingType = activeMeetingType
 	s.talks = withoutTemporaryTalks(s.talks)
-	s.applyScheduleLocked(scheduleForMeetingType(activeMeetingType, s.config.Schedule, s.state.CircuitOverseer, s.config.MidweekLanguage))
+	s.applyScheduleLocked(scheduleForMeetingType(activeMeetingType, s.effectiveMidweekScheduleLocked(now), s.state.CircuitOverseer, s.config.MidweekLanguage))
 }
 
 // purgeStaleTemporaryPartsLocked drops ad-hoc parts left over from an earlier
@@ -252,7 +271,7 @@ func latestMeetingStart(now time.Time, starts []MeetingStart) (time.Time, bool) 
 
 func (s *server) applyActiveScheduleChangeLocked(now time.Time) {
 	activeMeetingType := meetingTypeForTime(now)
-	activeSchedule := scheduleForMeetingType(activeMeetingType, s.config.Schedule, s.state.CircuitOverseer, s.config.MidweekLanguage)
+	activeSchedule := scheduleForMeetingType(activeMeetingType, s.effectiveMidweekScheduleLocked(now), s.state.CircuitOverseer, s.config.MidweekLanguage)
 	if s.state.Status == StatusIdle {
 		if s.state.MeetingType != activeMeetingType {
 			s.state.MeetingType = activeMeetingType
@@ -270,6 +289,7 @@ func (s *server) applyActiveScheduleChangeLocked(now time.Time) {
 
 func (s *server) recalculateLocked(now time.Time) {
 	s.syncCircuitOverseerLocked(now)
+	s.syncScheduleOverrideLocked(now)
 	s.syncActiveScheduleLocked(now)
 	s.purgeStaleTemporaryPartsLocked(now)
 	s.state.Now = now

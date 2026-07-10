@@ -13,11 +13,14 @@ func (s *server) handleState(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *server) handleConfig(w http.ResponseWriter, r *http.Request) {
+	// One clock reading for the whole response: two would let MeetingType and
+	// Schedule be resolved on opposite sides of an expiry boundary.
+	now := s.clock()
 	s.mu.Lock()
 	out := Config{
 		DeviceName:               s.config.DeviceName,
 		AdvertisedBaseURL:        s.config.AdvertisedBaseURL,
-		MeetingType:              meetingTypeForTime(s.clock()),
+		MeetingType:              meetingTypeForTime(now),
 		MeetingStartTime:         s.config.MeetingStartTime,
 		MeetingStarts:            append([]MeetingStart(nil), s.config.MeetingStarts...),
 		PrestartSeconds:          s.config.PrestartSeconds,
@@ -27,7 +30,9 @@ func (s *server) handleConfig(w http.ResponseWriter, r *http.Request) {
 		MidweekLanguageSchedules: copyMidweekLanguageScheduleMap(s.config.MidweekLanguageSchedules),
 		AutoImportMidweek:        s.config.AutoImportMidweek,
 		MidweekImportedWeek:      s.config.MidweekImportedWeek,
-		Schedule:                 append([]Talk(nil), s.config.Schedule...),
+		// Load the editor with the program that is actually running, so a save
+		// from this form can never post a schedule the clock is not using.
+		Schedule: append([]Talk(nil), s.effectiveMidweekScheduleLocked(now)...),
 	}
 	s.mu.Unlock()
 	writeJSON(w, out)
@@ -380,14 +385,30 @@ func (s *server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 		s.config.MidweekLanguageSources[language] = s.config.MidweekURL
 	}
 	s.config.AutoImportMidweek = body.AutoImportMidweek
-	s.config.Schedule = body.Schedule
+	// A hand-edited schedule is an override scoped to this meeting session, not a
+	// new baseline: it expires so the next congregation on a shared box starts
+	// from the imported program. Saving the baseline back clears the override,
+	// and re-saving an unchanged edit keeps its original expiry instead of
+	// silently extending it (an unrelated setting change must not buy 3 more hours).
+	saveNow := s.clock()
+	switch {
+	case sameSchedule(body.Schedule, s.config.Schedule):
+		s.config.ScheduleOverride = nil
+		s.config.ScheduleOverrideExpiresAt = time.Time{}
+	case s.scheduleOverrideAppliesLocked(saveNow) && sameSchedule(body.Schedule, s.config.ScheduleOverride):
+		// Unchanged edit: leave ScheduleOverrideExpiresAt alone. Testing "applies"
+		// rather than "window still open" is what stops a stale browser tab from
+		// re-arming an already-expired edit for another three hours.
+	default:
+		s.config.ScheduleOverride = body.Schedule
+		s.config.ScheduleOverrideExpiresAt = saveNow.Add(scheduleOverrideDuration)
+	}
 	if len(body.MidweekLanguageSchedules) > 0 {
 		s.config.MidweekLanguageSchedules = copyMidweekLanguageScheduleMap(body.MidweekLanguageSchedules)
 	} else {
 		s.config.MidweekLanguageSchedules = existingLanguageSchedules
 	}
 	s.state.DeviceName = body.DeviceName
-	s.state.MeetingType = body.MeetingType
 	s.state.MeetingStartTime = body.MeetingStartTime
 	s.state.MeetingStarts = body.MeetingStarts
 	s.state.PrestartLabel = ""
@@ -408,6 +429,13 @@ func (s *server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	now := s.clock()
 	s.mu.Lock()
 	_, due := s.nextAutoImportSourceLocked(now)
+	// An import installs a new baseline and drops the override. Never let the
+	// save that just created an override be the thing that triggers the import
+	// which discards it: the operator would watch their edit revert seconds
+	// after saving. The weekly Monday import still runs on its own schedule.
+	if s.scheduleOverrideAppliesLocked(now) {
+		due = false
+	}
 	s.mu.Unlock()
 	if due {
 		go s.autoImportTick(context.Background(), now)
@@ -497,7 +525,7 @@ func (s *server) handleImportMidweek(w http.ResponseWriter, r *http.Request) {
 	}
 	importedWeek := isoWeekString(s.clock())
 	s.config.MidweekImportedWeek = importedWeek
-	s.config.Schedule = schedule
+	s.setBaselineScheduleLocked(schedule)
 	s.storeMidweekLanguageScheduleLocked(s.config.MidweekLanguage, importedWeek, sourceURL, schedule)
 	s.applyActiveScheduleChangeLocked(s.clock())
 	config := s.config
@@ -510,7 +538,7 @@ func (s *server) handleImportMidweek(w http.ResponseWriter, r *http.Request) {
 	}
 
 	s.broadcast(state)
-	writeJSON(w, setupResponse(state, config))
+	writeJSON(w, setupResponse(state, config, s.clock()))
 }
 
 func (s *server) handleImportMidweekText(w http.ResponseWriter, r *http.Request) {
@@ -541,7 +569,7 @@ func (s *server) handleImportMidweekText(w http.ResponseWriter, r *http.Request)
 	s.config.MeetingType = "midweek"
 	s.config.MidweekLanguage = ""
 	s.config.MidweekImportedWeek = isoWeekString(s.clock())
-	s.config.Schedule = schedule
+	s.setBaselineScheduleLocked(schedule)
 	s.applyActiveScheduleChangeLocked(s.clock())
 	config := s.config
 	state := s.snapshotLocked()
@@ -553,7 +581,7 @@ func (s *server) handleImportMidweekText(w http.ResponseWriter, r *http.Request)
 	}
 
 	s.broadcast(state)
-	writeJSON(w, setupResponse(state, config))
+	writeJSON(w, setupResponse(state, config, s.clock()))
 }
 
 // setupResponse reshapes a state snapshot for the setup page: it carries the
@@ -561,9 +589,11 @@ func (s *server) handleImportMidweekText(w http.ResponseWriter, r *http.Request)
 // which on weekends resolve to the fixed weekend template. Without this, the
 // setup editor would load the weekend parts and a subsequent Save would
 // overwrite the saved midweek schedule with them.
-func setupResponse(state State, config Config) State {
+func setupResponse(state State, config Config, now time.Time) State {
 	state.MeetingType = config.MeetingType
-	state.Schedule = append([]Talk(nil), config.Schedule...)
+	// Resolve against the status in the snapshot, not a fresh read, so the setup
+	// page and the broadcast state always agree about which program is running.
+	state.Schedule = append([]Talk(nil), effectiveMidweekSchedule(config, state.Status, now)...)
 	return state
 }
 
@@ -589,7 +619,7 @@ func (s *server) applyTemplate(w http.ResponseWriter, meetingType string, schedu
 		s.state.MeetingStarts = s.config.MeetingStarts
 	}
 	if meetingType == "midweek" {
-		s.config.Schedule = schedule
+		s.setBaselineScheduleLocked(schedule)
 	}
 	s.applyActiveScheduleChangeLocked(s.clock())
 	config := s.config
@@ -602,7 +632,7 @@ func (s *server) applyTemplate(w http.ResponseWriter, meetingType string, schedu
 	}
 
 	s.broadcast(state)
-	writeJSON(w, setupResponse(state, config))
+	writeJSON(w, setupResponse(state, config, s.clock()))
 }
 
 func (s *server) changeTalk(w http.ResponseWriter, delta int) {
