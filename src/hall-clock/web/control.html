@@ -24,8 +24,8 @@
         <p id="meetingOvertime" class="card-overrun hidden" role="status"></p>
         <p id="nextPart" class="card-next"></p>
         <div class="timer-adjust">
-          <p class="stepper-label">Adjust time</p>
-          <div class="timer-stepper" aria-label="Adjust remaining time">
+          <p id="stepperLabel" class="stepper-label">Adjust time</p>
+          <div class="timer-stepper" role="group" aria-labelledby="stepperLabel">
             <button data-adjust="-60" class="action adjust-action" type="button" aria-label="Subtract 1 minute">
               <span class="adjust-symbol">-</span>
               <span class="adjust-label">1 min</span>
@@ -70,7 +70,8 @@
         </div>
         <div id="partPickerList" class="part-picker-list hidden"></div>
         <button id="adhocPartBtn" class="temporary-part-button" type="button" aria-expanded="false" aria-controls="adhocPartPanel">
-          Add temporary item
+          <span class="temporary-part-icon" aria-hidden="true">+</span>
+          <span>Add temporary item</span>
         </button>
         <form id="adhocPartPanel" class="adhoc-part-panel hidden">
           <label class="temporary-part-title">

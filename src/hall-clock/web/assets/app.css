@@ -245,8 +245,6 @@ textarea {
 .notice,
 .compact-timer,
 .control-panel,
-.compact-actions,
-.part-actions,
 .controller-admin {
   grid-column: 1;
 }
@@ -722,6 +720,10 @@ textarea {
 }
 
 .temporary-part-button {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
   width: 100%;
   min-height: 46px;
   border: 1px dashed rgba(255, 255, 255, 0.16);
@@ -733,6 +735,21 @@ textarea {
   font-weight: 700;
   cursor: pointer;
   transition: border-color 150ms ease, color 150ms ease, background-color 150ms ease;
+}
+
+/* Leading + marks this as an add action; the ring echoes the dashed border so
+   the affordance reads at a glance without shouting. */
+.temporary-part-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border: 1px solid currentColor;
+  border-radius: 50%;
+  font-size: 15px;
+  font-weight: 400;
+  line-height: 1;
 }
 
 .temporary-part-button:hover,
@@ -800,13 +817,6 @@ textarea {
   min-width: 0;
 }
 
-.button-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin: 0;
-}
-
 .control-panel {
   display: grid;
   gap: 12px;
@@ -839,22 +849,6 @@ textarea {
   gap: 10px;
 }
 
-.compact-actions {
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.part-actions {
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
 .primary-action-row {
   display: grid;
   grid-template-columns: 1fr;
@@ -881,13 +875,6 @@ textarea {
    phantom gap in the action stack. */
 .advance-action-row:has(> #endBtn.hidden) {
   display: none;
-}
-
-.compact-actions .action,
-.part-actions .action,
-.secondary-action-row .action {
-  min-height: 42px;
-  font-size: 15px;
 }
 
 .secondary-action-row .action {
@@ -1099,13 +1086,6 @@ textarea {
   animation: armed-pulse 1.2s ease infinite;
 }
 
-.part-actions .action.armed {
-  border-color: rgba(246, 196, 83, 0.55);
-  color: var(--amber);
-  outline: 2px solid rgba(246, 196, 83, 0.45);
-  outline-offset: 2px;
-}
-
 .part-picker-option.armed {
   background: rgba(246, 196, 83, 0.14);
   color: var(--amber);
@@ -1124,18 +1104,6 @@ textarea {
   filter: grayscale(0.35);
   transform: none;
   box-shadow: none;
-}
-
-/* Idle-disabled secondary controls (Restart time, End meeting) should read as
-   deliberately inert -- a flat, recessive surface -- rather than a see-through
-   gradient that looks accidentally faded. */
-.action-subtle:disabled,
-.action-end:disabled {
-  opacity: 1;
-  filter: none;
-  border-color: var(--line);
-  background: rgba(255, 255, 255, 0.015);
-  color: rgba(149, 160, 173, 0.5);
 }
 
 .settings-form {
@@ -1709,7 +1677,6 @@ textarea {
     font-size: 17px;
   }
 
-  .compact-actions .action,
   .secondary-action-row .action {
     min-height: 48px;
     font-size: 14px;
@@ -1791,8 +1758,6 @@ textarea {
   }
 
   .action,
-  .compact-actions .action,
-  .part-actions .action,
   .secondary-action-row .action,
   .primary-action-row .action-primary {
     min-height: 46px;
