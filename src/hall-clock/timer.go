@@ -125,6 +125,13 @@ func sameBaseSchedule(talks []Talk, base []Talk) bool {
 func (s *server) selectTalkLocked(talkID int) bool {
 	for _, talk := range s.talks {
 		if talk.ID == talkID {
+			// Moving on retires the current part, so whatever it ran over is now
+			// the meeting's problem. Re-selecting the part you are already on is a
+			// restart, not a departure, and banks nothing. Callers that can be in
+			// overtime must recalculate first so OvertimeSeconds is current.
+			if talk.ID != s.state.CurrentTalkID {
+				s.bankOvertimeLocked()
+			}
 			s.state.Status = StatusIdle
 			s.state.CurrentTalkID = talk.ID
 			s.state.CurrentTalkTitle = talk.Title
@@ -187,6 +194,39 @@ func (s *server) syncActiveScheduleLocked(now time.Time) {
 	s.state.MeetingType = activeMeetingType
 	s.talks = withoutTemporaryTalks(s.talks)
 	s.applyScheduleLocked(scheduleForMeetingType(activeMeetingType, s.effectiveMidweekScheduleLocked(now), s.state.CircuitOverseer, s.config.MidweekLanguage))
+}
+
+// bankOvertimeLocked records the overtime of the part the operator is leaving.
+// Only overtime is banked: finishing early does not pay back a part that ran
+// long, so the total only ever grows within a meeting.
+//
+// Callers must recalculate first, or state.OvertimeSeconds is whatever the last
+// poll happened to leave there.
+func (s *server) bankOvertimeLocked() {
+	if s.state.OvertimeSeconds > 0 {
+		s.bankedOvertimeSeconds += s.state.OvertimeSeconds
+	}
+}
+
+// syncOvertimeSessionLocked clears the banked total when a new meeting begins.
+// A meeting is identified the same way stale ad-hoc parts are: by the most
+// recent configured start, minus the prestart window so setting up counts as
+// part of the meeting. Runs only while idle, so a total is never zeroed out
+// from under a meeting in progress.
+func (s *server) syncOvertimeSessionLocked(now time.Time) {
+	if s.state.Status != StatusIdle {
+		return
+	}
+	sessionStart, ok := latestMeetingStart(now, s.config.MeetingStarts)
+	if !ok {
+		return
+	}
+	session := sessionStart.Add(-time.Duration(s.config.PrestartSeconds) * time.Second)
+	if s.overtimeSession.Equal(session) {
+		return
+	}
+	s.overtimeSession = session
+	s.bankedOvertimeSeconds = 0
 }
 
 // purgeStaleTemporaryPartsLocked drops ad-hoc parts left over from an earlier
@@ -291,6 +331,7 @@ func (s *server) recalculateLocked(now time.Time) {
 	s.syncCircuitOverseerLocked(now)
 	s.syncScheduleOverrideLocked(now)
 	s.syncActiveScheduleLocked(now)
+	s.syncOvertimeSessionLocked(now)
 	s.purgeStaleTemporaryPartsLocked(now)
 	s.state.Now = now
 	s.state.PrestartActive = false

@@ -471,6 +471,20 @@ textarea {
   z-index: 1;
 }
 
+/* How far the whole meeting is behind. Amber, not red: the red time value means
+   "this part is over", and the two must not be confused at a glance. Shown only
+   once there is something to report. */
+.card-overrun {
+  margin: 10px 0 0;
+  color: var(--amber);
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  position: relative;
+  z-index: 1;
+}
+
 .language-row {
   display: grid;
   gap: 8px;

@@ -15,6 +15,7 @@
   const nextBtn = document.getElementById("nextBtn");
   const resetBtn = document.getElementById("resetBtn");
   const partPosition = document.getElementById("partPosition");
+  const meetingOvertime = document.getElementById("meetingOvertime");
   const nextPart = document.getElementById("nextPart");
   const statusBadge = document.getElementById("statusBadge");
   const coToggle = document.getElementById("coToggle");
@@ -96,6 +97,12 @@
     partPosition.textContent = prestart ? (state.prestartLabel || "Meeting starts soon") : index >= 0 ? `Item ${index + 1} of ${schedule.length}` : "Schedule";
     const next = index >= 0 ? schedule[index + 1] : undefined;
     nextPart.textContent = next ? `Next: ${next.title}` : "Last item of the meeting";
+
+    // How far the whole meeting is behind, not just this part. Absent until it
+    // exists: a meeting running to time should show nothing at all.
+    const behind = state.meetingOvertimeSeconds || 0;
+    meetingOvertime.textContent = behind > 0 ? `Meeting ${WallClock.formatTime(behind)} behind` : "";
+    meetingOvertime.classList.toggle("hidden", behind <= 0);
 
     // Nothing follows the last item, so the button retires instead of wrapping.
     // Leave an armed label alone: overwriting it mid-confirmation would drop the

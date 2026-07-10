@@ -73,24 +73,30 @@ type MidweekLanguageSchedule struct {
 }
 
 type State struct {
-	Status                   TimerStatus    `json:"status"`
-	DeviceName               string         `json:"deviceName"`
-	MeetingType              string         `json:"meetingType"`
-	MeetingStartTime         string         `json:"meetingStartTime"`
-	MeetingStarts            []MeetingStart `json:"meetingStarts"`
-	PrestartLabel            string         `json:"prestartLabel"`
-	PrestartSeconds          int            `json:"prestartSeconds"`
-	PrestartActive           bool           `json:"prestartActive"`
-	PrestartRemaining        int            `json:"prestartRemainingSeconds"`
-	CurrentTalkID            int            `json:"currentTalkId"`
-	CurrentTalkTitle         string         `json:"currentTalkTitle"`
-	DurationSeconds          int            `json:"durationSeconds"`
-	RemainingSeconds         int            `json:"remainingSeconds"`
-	ElapsedSeconds           int            `json:"elapsedSeconds"`
-	ClosingSeconds           int            `json:"closingSeconds"`
-	OvertimeSeconds          int            `json:"overtimeSeconds"`
-	CircuitOverseer          bool           `json:"circuitOverseer"`
-	CircuitOverseerExpiresAt *time.Time     `json:"circuitOverseerExpiresAt,omitempty"`
+	Status            TimerStatus    `json:"status"`
+	DeviceName        string         `json:"deviceName"`
+	MeetingType       string         `json:"meetingType"`
+	MeetingStartTime  string         `json:"meetingStartTime"`
+	MeetingStarts     []MeetingStart `json:"meetingStarts"`
+	PrestartLabel     string         `json:"prestartLabel"`
+	PrestartSeconds   int            `json:"prestartSeconds"`
+	PrestartActive    bool           `json:"prestartActive"`
+	PrestartRemaining int            `json:"prestartRemainingSeconds"`
+	CurrentTalkID     int            `json:"currentTalkId"`
+	CurrentTalkTitle  string         `json:"currentTalkTitle"`
+	DurationSeconds   int            `json:"durationSeconds"`
+	RemainingSeconds  int            `json:"remainingSeconds"`
+	ElapsedSeconds    int            `json:"elapsedSeconds"`
+	ClosingSeconds    int            `json:"closingSeconds"`
+	OvertimeSeconds   int            `json:"overtimeSeconds"`
+	// MeetingOvertimeSeconds is how far the whole meeting is behind: the overtime
+	// banked from parts already finished, plus whatever the current part is over
+	// right now. Time saved on a short part does not pay it back — a meeting that
+	// runs long runs long, and the chairman needs the number that is actually
+	// costing him.
+	MeetingOvertimeSeconds   int        `json:"meetingOvertimeSeconds"`
+	CircuitOverseer          bool       `json:"circuitOverseer"`
+	CircuitOverseerExpiresAt *time.Time `json:"circuitOverseerExpiresAt,omitempty"`
 	// ScheduleOverrideExpiresAt lets the UI show how long a hand-edited schedule
 	// still applies before the baseline returns; nil when no edit is active.
 	ScheduleOverrideExpiresAt *time.Time `json:"scheduleOverrideExpiresAt,omitempty"`
