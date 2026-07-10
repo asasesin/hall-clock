@@ -108,6 +108,13 @@ type State struct {
 	PairingExpiresAt          *time.Time `json:"pairingExpiresAt,omitempty"`
 }
 
+// partOverrun is how far one finished part ran past its time. The talk it came
+// from is kept so a future undo can identify what it is giving back.
+type partOverrun struct {
+	talkID  int
+	seconds int
+}
+
 type clockTime struct {
 	hour   int
 	minute int

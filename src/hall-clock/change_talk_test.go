@@ -6,6 +6,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"testing"
+	"time"
 )
 
 func (h *overrideHarness) postExpect(path, body string, want int) *httptest.ResponseRecorder {
@@ -98,5 +99,41 @@ func TestNextAdvancesAndStagesIdle(t *testing.T) {
 	}
 	if state.RemainingSeconds != schedule[1].Duration || state.ElapsedSeconds != 0 {
 		t.Fatalf("next part not staged fresh: remaining=%d elapsed=%d", state.RemainingSeconds, state.ElapsedSeconds)
+	}
+}
+
+// Regression: changeTalk once bounds-checked `next` against s.talks and then
+// called recalculateLocked, which purges stale ad-hoc parts and can shrink the
+// slice, before indexing s.talks[next]. That panicked while holding s.mu, whose
+// Unlock is not deferred -- so the mutex stayed locked and the whole clock hung.
+func TestNextSurvivesScheduleShrinkingDuringRecalculate(t *testing.T) {
+	h := newOverrideHarness(t) // Thursday 19:00
+	schedule := h.state().Schedule
+	lastReal := schedule[len(schedule)-1]
+
+	// Park on the last real part so the ad-hoc part is appended after it, then
+	// take the selection back (handleAdhocPart selects the new part while idle).
+	h.selectPart(lastReal.ID)
+	h.post("/api/control/adhoc-part", `{"title":"Announcements","seconds":300}`)
+	h.selectPart(lastReal.ID)
+
+	if got := len(h.state().Schedule); got != len(schedule)+1 {
+		t.Fatalf("setup: expected the ad-hoc part appended, got %d parts", got)
+	}
+
+	// A day passes with no state poll, so s.talks still holds the now-stale
+	// ad-hoc part when the next request arrives.
+	h.advance(24*time.Hour + 5*time.Minute)
+
+	// Next is the last part of the purged schedule, so there is nothing after it.
+	h.postExpect("/api/control/next", "", http.StatusConflict)
+
+	// The real assertion: the server is still alive and the mutex still usable.
+	after := h.state()
+	if after.CurrentTalkID != lastReal.ID {
+		t.Fatalf("expected to stay on the last part, got %d", after.CurrentTalkID)
+	}
+	if len(after.Schedule) != len(schedule) {
+		t.Fatalf("expected the stale ad-hoc part purged, got %d parts", len(after.Schedule))
 	}
 }

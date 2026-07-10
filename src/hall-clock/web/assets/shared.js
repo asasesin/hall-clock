@@ -43,17 +43,41 @@
     }
   }
 
-  async function postJSON(path, body) {
-    const response = await fetch(path, {
-      method: "POST",
-      headers: {
-        "Content-Type": "application/json",
-        "X-Wall-Clock-Token": getToken(),
-      },
-      body: JSON.stringify(body || {}),
-    });
+  // A request that never settles leaves its caller's "pending" flag set forever,
+  // which is how a dropped wifi link used to permanently disable the Start
+  // button. Always give fetch a deadline. Imports and updates talk to the
+  // network and are legitimately slow, so the default is generous; the control
+  // buttons pass something short because a person is waiting on them.
+  const DEFAULT_TIMEOUT_MS = 30000;
+
+  async function postJSON(path, body, options) {
+    const timeoutMs = (options && options.timeoutMs) || DEFAULT_TIMEOUT_MS;
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), timeoutMs);
+    let response;
+    try {
+      response = await fetch(path, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Wall-Clock-Token": getToken(),
+        },
+        body: JSON.stringify(body || {}),
+        signal: controller.signal,
+      });
+    } catch (cause) {
+      const error = new Error(cause && cause.name === "AbortError" ? `${path} timed out` : String(cause));
+      error.timedOut = cause && cause.name === "AbortError";
+      throw error;
+    } finally {
+      clearTimeout(timer);
+    }
     if (!response.ok) {
-      throw new Error(await response.text());
+      // Carry the status: callers must tell "your token is bad" apart from an
+      // ordinary refusal like advancing past the last part of the meeting.
+      const error = new Error(await response.text());
+      error.status = response.status;
+      throw error;
     }
     return response.json();
   }

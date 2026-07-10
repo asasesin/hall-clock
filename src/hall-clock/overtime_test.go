@@ -150,3 +150,50 @@ func TestMeetingOvertimeSurvivesWithinTheSameMeeting(t *testing.T) {
 		t.Fatalf("banked overtime was cleared during the meeting, got %ds", got)
 	}
 }
+
+// Only a person leaving a part banks its overtime. Schedule rebuilds reselect
+// parts internally, and none of those are the operator finishing a talk.
+func TestMeetingOvertimeNotBankedByScheduleRebuild(t *testing.T) {
+	h := newOverrideHarness(t)
+
+	h.runPartOver(45 * time.Second)
+	before := h.state().MeetingOvertimeSeconds
+	if before != 45 {
+		t.Fatalf("setup: want 45s live overtime, got %ds", before)
+	}
+
+	// Saving an edited schedule mid-meeting rebuilds the running talks.
+	h.saveEditedSchedule(120)
+
+	// The part is still the one being spoken: nothing has been retired.
+	if len(h.srv.retiredOverruns) != 0 {
+		t.Fatalf("a schedule rebuild retired %d parts: %+v", len(h.srv.retiredOverruns), h.srv.retiredOverruns)
+	}
+}
+
+// The total is derived from per-part records, so a retired part's overrun can be
+// identified and given back — the thing a running sum could never support.
+func TestMeetingOvertimeRecordsWhichPartRanOver(t *testing.T) {
+	h := newOverrideHarness(t)
+
+	first := h.state().CurrentTalkID
+	h.runPartOver(90 * time.Second)
+	h.post("/api/control/next", "")
+	second := h.state().CurrentTalkID
+	h.runPartOver(30 * time.Second)
+	h.post("/api/control/next", "")
+
+	got := h.srv.retiredOverruns
+	want := []partOverrun{{talkID: first, seconds: 90}, {talkID: second, seconds: 30}}
+	if len(got) != len(want) {
+		t.Fatalf("got %d retired parts, want %d: %+v", len(got), len(want), got)
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("retired[%d] = %+v, want %+v", i, got[i], want[i])
+		}
+	}
+	if total := h.state().MeetingOvertimeSeconds; total != 120 {
+		t.Fatalf("total should be the sum of the records, got %ds want 120", total)
+	}
+}
