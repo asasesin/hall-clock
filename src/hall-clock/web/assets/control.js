@@ -53,13 +53,16 @@
     if (!timerCommandPending) {
       startBtn.textContent = state.status === "running" ? "Pause" : state.status === "paused" ? "Resume" : "Start";
     }
-    resetBtn.disabled = state.status === "idle" && state.remainingSeconds === state.durationSeconds;
-    if (resetBtn.disabled && resetBtn.classList.contains("armed")) {
+    // Restart time and End meeting only act on a live clock, so they are hidden
+    // outright while idle rather than shown greyed -- the panel reads as fully
+    // available at rest instead of half-disabled.
+    const idle = state.status === "idle";
+    resetBtn.classList.toggle("hidden", idle);
+    if (idle && resetBtn.classList.contains("armed")) {
       disarmReset();
     }
-    // Nothing to end when the clock is already idle.
-    endBtn.disabled = state.status === "idle";
-    if (endBtn.disabled && endBtn.classList.contains("armed")) {
+    endBtn.classList.toggle("hidden", idle);
+    if (idle && endBtn.classList.contains("armed")) {
       disarmEnd();
     }
     if (state.status === "idle") {

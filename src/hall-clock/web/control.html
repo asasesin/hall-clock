@@ -23,9 +23,23 @@
         <div id="timeValue" class="control-time">00:00</div>
         <p id="meetingOvertime" class="card-overrun hidden" role="status"></p>
         <p id="nextPart" class="card-next"></p>
+        <div class="timer-adjust">
+          <p id="stepperLabel" class="stepper-label">Adjust time</p>
+          <div class="timer-stepper" role="group" aria-labelledby="stepperLabel">
+            <button data-adjust="-60" class="action adjust-action" type="button" aria-label="Subtract 1 minute">
+              <span class="adjust-symbol">-</span>
+              <span class="adjust-label">1 min</span>
+            </button>
+            <button data-adjust="60" class="action adjust-action" type="button" aria-label="Add 1 minute">
+              <span class="adjust-symbol">+</span>
+              <span class="adjust-label">1 min</span>
+            </button>
+          </div>
+        </div>
       </section>
 
       <section class="control-panel">
+        <p class="card-eyebrow">Controls</p>
         <div class="control-actions">
           <div class="primary-action-row">
             <button id="startBtn" class="action action-primary" type="button">Start</button>
@@ -46,49 +60,20 @@
         </div>
       </section>
 
-      <section id="timingPanel" class="tab-panel">
-        <div class="button-grid compact-actions" aria-label="Adjust remaining time">
-          <button data-adjust="-60" class="action adjust-action" type="button" aria-label="Subtract 1 minute">
-            <span class="adjust-symbol">-</span>
-            <span class="adjust-label">1 min</span>
-          </button>
-          <button data-adjust="60" class="action adjust-action" type="button" aria-label="Add 1 minute">
-            <span class="adjust-symbol">+</span>
-            <span class="adjust-label">1 min</span>
-          </button>
-        </div>
-      </section>
-
       <section id="partsPanel" class="tab-panel">
-        <label class="language-row">
-          <span>Schedule language</span>
-          <select id="languageSelect">
-            <option value="en">English</option>
-            <option value="es">Spanish</option>
-            <option value="tw">Twi</option>
-          </select>
-        </label>
-        <p id="languageStatus" class="language-hint hidden"></p>
-        <div class="co-row">
-          <div class="co-row-text">
-            <span class="co-row-label">Circuit overseer visit</span>
-            <span class="co-row-hint hidden" id="coHint"></span>
-          </div>
-          <button id="coToggle" class="co-toggle" type="button" role="switch" aria-checked="false" aria-label="Circuit overseer visit" title="Swap in the circuit overseer visit schedule">
-            <span class="co-toggle-track"><span class="co-toggle-thumb"></span></span>
-          </button>
-        </div>
         <div class="part-picker-field">
           <span class="control-field-label">Current item</span>
-          <button id="partPickerBtn" class="part-picker-button" type="button" aria-expanded="false" aria-controls="partPickerList">
-            <span id="currentPartTitle">Select item</span>
-            <span id="currentPartDuration" class="part-duration"></span>
-          </button>
+          <div class="current-item-row">
+            <button id="partPickerBtn" class="part-picker-button" type="button" aria-expanded="false" aria-controls="partPickerList">
+              <span id="currentPartTitle">Select item</span>
+              <span id="currentPartDuration" class="part-duration"></span>
+            </button>
+            <button id="adhocPartBtn" class="temporary-part-button" type="button" aria-expanded="false" aria-controls="adhocPartPanel" aria-label="Add temporary item" title="Add temporary item">
+              <span class="temporary-part-icon" aria-hidden="true">+</span>
+            </button>
+          </div>
         </div>
         <div id="partPickerList" class="part-picker-list hidden"></div>
-        <button id="adhocPartBtn" class="temporary-part-button" type="button" aria-expanded="false" aria-controls="adhocPartPanel">
-          Add temporary item
-        </button>
         <form id="adhocPartPanel" class="adhoc-part-panel hidden">
           <label class="temporary-part-title">
             <span>Title</span>
@@ -101,6 +86,29 @@
           <button id="saveAdhocPartBtn" class="small-button" type="submit">Add</button>
           <button id="cancelAdhocPartBtn" class="small-button" type="button">Cancel</button>
         </form>
+
+        <!-- Pre-meeting schedule setup: both controls lock once the timer runs,
+             so they sit below the live item controls the operator uses mid-meeting. -->
+        <div class="schedule-setup">
+          <label class="language-row">
+            <span>Schedule language</span>
+            <select id="languageSelect">
+              <option value="en">English</option>
+              <option value="es">Spanish</option>
+              <option value="tw">Twi</option>
+            </select>
+          </label>
+          <p id="languageStatus" class="language-hint hidden"></p>
+          <div class="co-row">
+            <div class="co-row-text">
+              <span class="co-row-label">Circuit overseer visit</span>
+              <span class="co-row-hint hidden" id="coHint"></span>
+            </div>
+            <button id="coToggle" class="co-toggle" type="button" role="switch" aria-checked="false" aria-label="Circuit overseer visit" title="Swap in the circuit overseer visit schedule">
+              <span class="co-toggle-track"><span class="co-toggle-thumb"></span></span>
+            </button>
+          </div>
+        </div>
       </section>
 
       <footer class="controller-admin">

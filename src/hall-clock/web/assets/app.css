@@ -245,8 +245,6 @@ textarea {
 .notice,
 .compact-timer,
 .control-panel,
-.compact-actions,
-.part-actions,
 .controller-admin {
   grid-column: 1;
 }
@@ -352,16 +350,22 @@ textarea {
   text-align: center;
 }
 
-/* Circuit-overseer-visit toggle row at the top of the Parts card: swaps in the
-   CO schedule for both meetings. */
+/* Pre-meeting schedule setup (language + CO), divided from the live item
+   controls above it. Both lock once the timer runs, so they sit at the bottom. */
+.schedule-setup {
+  display: grid;
+  gap: 12px;
+  margin-top: 4px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+}
+
+/* Circuit-overseer-visit toggle: swaps in the CO schedule for both meetings. */
 .co-row {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 12px;
-  margin-bottom: 12px;
-  padding-bottom: 12px;
-  border-bottom: 1px solid var(--line);
 }
 
 .co-row-text {
@@ -513,6 +517,19 @@ textarea {
 .part-picker-field {
   display: grid;
   gap: 8px;
+}
+
+/* Picker and its add button share a row: the picker flexes to fill, the + sits
+   to its right at matching height. */
+.current-item-row {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+}
+
+.current-item-row .part-picker-button {
+  flex: 1;
+  min-width: 0;
 }
 
 
@@ -715,18 +732,32 @@ textarea {
   cursor: not-allowed;
 }
 
+/* A rare, secondary action: a round + button beside the picker, so it never
+   competes with the Current item selector or reads as an empty drop-zone the
+   way a full-width dashed bar did. Its accessible name and tooltip carry the
+   "Add temporary item" meaning the icon alone can't. */
 .temporary-part-button {
-  width: 100%;
-  min-height: 46px;
-  border: 1px dashed rgba(255, 255, 255, 0.16);
-  border-radius: 12px;
-  padding: 9px 12px;
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
   background: transparent;
-  color: #b8c1cc;
-  font-size: 14px;
-  font-weight: 700;
+  color: var(--muted);
   cursor: pointer;
   transition: border-color 150ms ease, color 150ms ease, background-color 150ms ease;
+}
+
+.temporary-part-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 21px;
+  font-weight: 600;
+  line-height: 1;
 }
 
 .temporary-part-button:hover,
@@ -794,13 +825,6 @@ textarea {
   min-width: 0;
 }
 
-.button-grid {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-  margin: 0;
-}
-
 .control-panel {
   display: grid;
   gap: 12px;
@@ -833,22 +857,6 @@ textarea {
   gap: 10px;
 }
 
-.compact-actions {
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
-.part-actions {
-  padding: 0;
-  border: 0;
-  border-radius: 0;
-  background: transparent;
-  box-shadow: none;
-}
-
 .primary-action-row {
   display: grid;
   grid-template-columns: 1fr;
@@ -865,11 +873,16 @@ textarea {
   gap: 10px;
 }
 
-.compact-actions .action,
-.part-actions .action,
-.secondary-action-row .action {
-  min-height: 42px;
-  font-size: 15px;
+/* While idle, Restart time is hidden and Bell is the only control left in this
+   row -- let it span the full width so no half-empty slot is left behind. */
+.secondary-action-row:has(> .action.hidden) {
+  grid-template-columns: 1fr;
+}
+
+/* End meeting hides itself while idle; drop its row entirely so it leaves no
+   phantom gap in the action stack. */
+.advance-action-row:has(> #endBtn.hidden) {
+  display: none;
 }
 
 .secondary-action-row .action {
@@ -878,13 +891,11 @@ textarea {
 }
 
 .adjust-action {
-  display: grid;
-  grid-template-columns: auto 1fr;
+  display: inline-flex;
   gap: 10px;
   align-items: center;
-  justify-content: start;
+  justify-content: center;
   padding: 12px 16px;
-  text-align: left;
 }
 
 .adjust-symbol {
@@ -899,6 +910,48 @@ textarea {
 .adjust-label {
   font-size: 16px;
   font-weight: 800;
+}
+
+/* The +/- stepper lives inside the timer card, divided from the readout above it
+   so it reads as part of the clock rather than a separate panel. The "Adjust
+   time" label removes any doubt that the buttons change the clock by a minute
+   rather than set it to one. */
+.timer-adjust {
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  position: relative;
+  z-index: 1;
+}
+
+.stepper-label {
+  margin: 0 0 10px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  text-align: center;
+}
+
+.timer-stepper {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.timer-stepper .adjust-action {
+  min-height: 44px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.timer-stepper .adjust-symbol {
+  font-size: 24px;
+}
+
+.timer-stepper .adjust-label {
+  font-size: 15px;
 }
 
 .action {
@@ -1009,15 +1062,15 @@ textarea {
    to end. Confirming turns amber like every other two-tap action. */
 .action-end {
   min-height: 46px;
-  border-color: var(--line-strong);
-  background: #11161d;
-  color: #cdd5de;
+  border-color: rgba(244, 95, 87, 0.26);
+  background: linear-gradient(180deg, #1c1416, #16110f);
+  color: #e0b6b2;
   font-size: 15px;
 }
 
 .action-end:hover:not(:disabled) {
-  border-color: rgba(255, 255, 255, 0.28);
-  color: var(--text);
+  border-color: rgba(244, 95, 87, 0.5);
+  color: #f2cdc9;
 }
 
 .action-end.armed {
@@ -1041,13 +1094,6 @@ textarea {
   animation: armed-pulse 1.2s ease infinite;
 }
 
-.part-actions .action.armed {
-  border-color: rgba(246, 196, 83, 0.55);
-  color: var(--amber);
-  outline: 2px solid rgba(246, 196, 83, 0.45);
-  outline-offset: 2px;
-}
-
 .part-picker-option.armed {
   background: rgba(246, 196, 83, 0.14);
   color: var(--amber);
@@ -1061,9 +1107,9 @@ textarea {
 
 .action:disabled,
 .small-button:disabled {
-  opacity: 0.4;
+  opacity: 0.55;
   cursor: not-allowed;
-  filter: none;
+  filter: grayscale(0.35);
   transform: none;
   box-shadow: none;
 }
@@ -1639,7 +1685,6 @@ textarea {
     font-size: 17px;
   }
 
-  .compact-actions .action,
   .secondary-action-row .action {
     min-height: 48px;
     font-size: 14px;
@@ -1721,8 +1766,6 @@ textarea {
   }
 
   .action,
-  .compact-actions .action,
-  .part-actions .action,
   .secondary-action-row .action,
   .primary-action-row .action-primary {
     min-height: 46px;
