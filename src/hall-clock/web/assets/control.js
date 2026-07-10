@@ -161,13 +161,22 @@
     adhocPartBtn.setAttribute("aria-expanded", "false");
   }
 
+  // A person is standing at the front waiting for this, so fail fast rather than
+  // hang: the click handler only clears its pending flag once this settles, and
+  // render() keeps the button disabled while it is set.
+  const TIMER_COMMAND_TIMEOUT_MS = 8000;
+
   async function timerCommand(path) {
     try {
-      const state = await WallClock.postJSON(path);
+      const state = await WallClock.postJSON(path, undefined, { timeoutMs: TIMER_COMMAND_TIMEOUT_MS });
       timerCommandPending = false;
       render(state);
     } catch (error) {
-      tokenWarning.classList.remove("hidden");
+      // Only an auth failure means the token is wrong. A timeout or a refusal
+      // must not send the operator off to re-pair the device.
+      if (error.status === 401 || error.status === 403) {
+        tokenWarning.classList.remove("hidden");
+      }
       console.error(error);
       throw error;
     }
