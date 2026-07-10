@@ -471,6 +471,20 @@ textarea {
   z-index: 1;
 }
 
+/* How far the whole meeting is behind. Amber, not red: the red time value means
+   "this part is over", and the two must not be confused at a glance. Shown only
+   once there is something to report. */
+.card-overrun {
+  margin: 10px 0 0;
+  color: var(--amber);
+  font-size: 13px;
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.02em;
+  position: relative;
+  z-index: 1;
+}
+
 .language-row {
   display: grid;
   gap: 8px;
@@ -811,6 +825,11 @@ textarea {
   grid-template-columns: 1fr;
 }
 
+.advance-action-row {
+  display: grid;
+  grid-template-columns: 1fr;
+}
+
 .secondary-action-row {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -914,6 +933,35 @@ textarea {
 .action-subtle {
   background: #11161d;
   color: var(--text);
+}
+
+/* Next part is the second-most-pressed control after Start: full width and
+   clearly tappable, but never competing with Start's green. */
+.action-next {
+  min-height: 50px;
+  border-color: rgba(111, 156, 255, 0.32);
+  background: linear-gradient(180deg, #1b2434, #151b26);
+  color: #b9cdff;
+  font-size: 16px;
+}
+
+.action-next:hover:not(:disabled) {
+  border-color: rgba(111, 156, 255, 0.5);
+}
+
+/* Armed means one more tap throws away a running part's elapsed time. Amber,
+   matching every other destructive confirmation in the control panel. */
+.action-next.armed {
+  border-color: rgba(246, 196, 83, 0.55);
+  background: linear-gradient(180deg, #2a2416, #1d180f);
+  color: var(--amber);
+  outline: 2px solid rgba(246, 196, 83, 0.45);
+  outline-offset: 2px;
+}
+
+/* The meeting is over: state it plainly rather than dangling an action. */
+.action-next:disabled {
+  border-style: dashed;
 }
 
 .action-danger {

@@ -12,8 +12,10 @@
   const currentPartTitle = document.getElementById("currentPartTitle");
   const currentPartDuration = document.getElementById("currentPartDuration");
   const startBtn = document.getElementById("startBtn");
+  const nextBtn = document.getElementById("nextBtn");
   const resetBtn = document.getElementById("resetBtn");
   const partPosition = document.getElementById("partPosition");
+  const meetingOvertime = document.getElementById("meetingOvertime");
   const nextPart = document.getElementById("nextPart");
   const statusBadge = document.getElementById("statusBadge");
   const coToggle = document.getElementById("coToggle");
@@ -23,6 +25,7 @@
   let lastBell = -1;
   let scheduleKey = "";
   let resetArmTimeout = null;
+  let nextArmTimeout = null;
   let partArmTimeout = null;
   let latestStatus = "idle";
   let latestState = null;
@@ -54,6 +57,8 @@
     }
     if (state.status === "idle") {
       disarmPartButtons();
+      // No live timer left to protect, so the confirmation is moot.
+      disarmNext();
     }
     statusBadge.textContent = prestart ? "Countdown" : WallClock.statusLabel(state.status);
     statusBadge.classList.toggle("running", state.status === "running");
@@ -92,6 +97,25 @@
     partPosition.textContent = prestart ? (state.prestartLabel || "Meeting starts soon") : index >= 0 ? `Item ${index + 1} of ${schedule.length}` : "Schedule";
     const next = index >= 0 ? schedule[index + 1] : undefined;
     nextPart.textContent = next ? `Next: ${next.title}` : "Last item of the meeting";
+
+    // How far the whole meeting is behind, not just this part. Absent until it
+    // exists: a meeting running to time should show nothing at all.
+    const behind = state.meetingOvertimeSeconds || 0;
+    meetingOvertime.textContent = behind > 0 ? `Meeting ${WallClock.formatTime(behind)} behind` : "";
+    meetingOvertime.classList.toggle("hidden", behind <= 0);
+
+    // Nothing follows the last item, so the button retires instead of wrapping.
+    // Leave an armed label alone: overwriting it mid-confirmation would drop the
+    // operator's first tap on the next state broadcast.
+    const atEnd = !next;
+    nextBtn.disabled = timerCommandPending || atEnd;
+    if (!nextBtn.classList.contains("armed")) {
+      nextBtn.textContent = atEnd ? "Meeting complete" : "Next part";
+    }
+    if (nextBtn.disabled && nextBtn.classList.contains("armed")) {
+      disarmNext();
+    }
+
     renderPartPicker(schedule, state.currentTalkId);
 
     if (state.bell !== lastBell) {
@@ -241,7 +265,22 @@
     clearTimeout(resetArmTimeout);
     resetArmTimeout = null;
     resetBtn.classList.remove("armed");
-    resetBtn.textContent = "Reset";
+    resetBtn.textContent = "Restart part";
+  }
+
+  // The last item has nothing after it, so the button says so rather than
+  // looping back to the opening comments.
+  function isLastPart(state) {
+    const schedule = (state && state.schedule) || [];
+    if (schedule.length === 0) return true;
+    return schedule[schedule.length - 1].id === state.currentTalkId;
+  }
+
+  function disarmNext() {
+    clearTimeout(nextArmTimeout);
+    nextArmTimeout = null;
+    nextBtn.classList.remove("armed");
+    nextBtn.textContent = latestState && isLastPart(latestState) ? "Meeting complete" : "Next part";
   }
 
   function disarmPartButtons() {
@@ -340,12 +379,31 @@
   resetBtn.addEventListener("click", () => {
     if (!resetBtn.classList.contains("armed")) {
       resetBtn.classList.add("armed");
-      resetBtn.textContent = "Confirm reset";
+      resetBtn.textContent = "Confirm restart";
       resetArmTimeout = setTimeout(disarmReset, 3000);
       return;
     }
     disarmReset();
     command("/api/control/reset");
+  });
+  // Advancing discards a live timer's elapsed time with no way back, so while a
+  // part is running or paused it takes two taps. Idle is the ordinary case
+  // (the part just ended) and moves straight on.
+  nextBtn.addEventListener("click", () => {
+    if (latestStatus === "idle") {
+      disarmNext();
+      command("/api/control/next");
+      return;
+    }
+    if (!nextBtn.classList.contains("armed")) {
+      disarmPartButtons();
+      nextBtn.classList.add("armed");
+      nextBtn.textContent = "Tap again to end part";
+      nextArmTimeout = setTimeout(disarmNext, 3000);
+      return;
+    }
+    disarmNext();
+    command("/api/control/next");
   });
   document.getElementById("bellBtn").addEventListener("click", () => command("/api/control/bell"));
   coToggle.addEventListener("click", () => {

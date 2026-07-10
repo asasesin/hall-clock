@@ -21,6 +21,7 @@
           <span id="statusBadge" class="status-badge">Idle</span>
         </div>
         <div id="timeValue" class="control-time">00:00</div>
+        <p id="meetingOvertime" class="card-overrun hidden" role="status"></p>
         <p id="nextPart" class="card-next"></p>
       </section>
 
@@ -30,9 +31,13 @@
             <button id="startBtn" class="action action-primary" type="button">Start</button>
           </div>
 
+          <div class="advance-action-row">
+            <button id="nextBtn" class="action action-next" type="button">Next part</button>
+          </div>
+
           <div class="secondary-action-row">
             <button id="bellBtn" class="action action-subtle" type="button">Bell</button>
-            <button id="resetBtn" class="action action-quiet-danger" type="button">Reset</button>
+            <button id="resetBtn" class="action action-quiet-danger" type="button">Restart part</button>
           </div>
         </div>
       </section>

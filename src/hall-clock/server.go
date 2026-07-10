@@ -24,6 +24,13 @@ type server struct {
 	remainingAt int
 	bellSeq     int64
 	subscribers map[chan State]struct{}
+	// bankedOvertimeSeconds is the overtime of parts the operator has already
+	// left behind. Not persisted: it describes one meeting, and a reboot mid
+	// meeting is rare enough that a wrong total is worse than a reset one.
+	bankedOvertimeSeconds int
+	// overtimeSession identifies the meeting the bank belongs to, so the total
+	// clears itself when the next meeting comes around.
+	overtimeSession time.Time
 	// clock is the time source for all scheduling decisions (meeting-type
 	// switching, stale-part purging, timer elapsed). Defaults to time.Now;
 	// tests override it to pin a specific day so behaviour is deterministic.
@@ -341,6 +348,8 @@ func (s *server) snapshotLocked() State {
 	out.MeetingStarts = append([]MeetingStart(nil), s.config.MeetingStarts...)
 	out.MidweekLanguage = s.config.MidweekLanguage
 	out.ScheduleOverrideExpiresAt = sessionWindowExpiryPtr(s.config.ScheduleOverrideExpiresAt, s.state.Now)
+	// Parts already finished, plus however far the current one is over right now.
+	out.MeetingOvertimeSeconds = s.bankedOvertimeSeconds + max(0, s.state.OvertimeSeconds)
 	out.PairingActive = true
 	out.PairingExpiresAt = nil
 	return out
