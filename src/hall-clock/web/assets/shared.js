@@ -79,6 +79,14 @@
     return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
   }
 
+  function formatStartTime(value) {
+    const match = /^(\d{1,2}):(\d{2})$/.exec(String(value || ""));
+    if (!match) return value || "";
+    const date = new Date();
+    date.setHours(Number(match[1]), Number(match[2]), 0, 0);
+    return date.toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
+  }
+
   function statusLabel(status) {
     if (status === "running") return "Running";
     if (status === "paused") return "Paused";
@@ -118,6 +126,7 @@
     subscribe,
     formatTime,
     formatClock,
+    formatStartTime,
     statusLabel,
     playBell,
   };
