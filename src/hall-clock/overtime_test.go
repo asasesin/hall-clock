@@ -72,7 +72,8 @@ func TestMeetingOvertimeNotBankedOnRestartOrReselect(t *testing.T) {
 	h.runPartOver(45 * time.Second)
 	current := h.state().CurrentTalkID
 
-	// Reset restarts the current part.
+	// Restarting the time gives the current part its full clock back, so its
+	// live overtime disappears rather than being banked.
 	h.post("/api/control/reset", "")
 	if got := h.state().MeetingOvertimeSeconds; got != 0 {
 		t.Fatalf("restart banked the current part's overtime, got %ds want 0", got)

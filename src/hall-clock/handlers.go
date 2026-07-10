@@ -65,13 +65,44 @@ func (s *server) handlePause(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, state)
 }
 
-func (s *server) handleReset(w http.ResponseWriter, r *http.Request) {
+// handleEndMeeting stops the clock and returns it to idle, the way finishing a
+// meeting should: the running or paused part is released, the current part's
+// clock is reset to full, and the meeting's overtime tally is wiped. Idling is
+// what lets the next meeting's prestart countdown appear and the session
+// reconciliations run -- none of which happen while a timer is left running, so
+// without this the next meeting would start degraded until a part was selected.
+func (s *server) handleEndMeeting(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	s.state.Status = StatusIdle
 	s.remainingAt = s.state.DurationSeconds
 	s.state.RemainingSeconds = s.state.DurationSeconds
 	s.state.ElapsedSeconds = 0
 	s.state.OvertimeSeconds = 0
+	s.retiredOverruns = nil
+	state := s.snapshotLocked()
+	s.mu.Unlock()
+
+	s.broadcast(state)
+	writeJSON(w, state)
+}
+
+// handleReset restarts the current part's countdown from its full time without
+// stopping it: a running part keeps running from the top, a paused one stays
+// paused at the top. It does not change which part is selected. For a part that
+// was over, this gives its time back, so the meeting's overtime total drops by
+// that live amount.
+func (s *server) handleReset(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	s.remainingAt = s.state.DurationSeconds
+	s.state.RemainingSeconds = s.state.DurationSeconds
+	s.state.ElapsedSeconds = 0
+	s.state.OvertimeSeconds = 0
+	// Restart the clock from now so a running part counts down from full; leaving
+	// startedAt untouched would make recalculate immediately subtract the elapsed
+	// time again.
+	if s.state.Status == StatusRunning {
+		s.startedAt = s.clock()
+	}
 	state := s.snapshotLocked()
 	s.mu.Unlock()
 
