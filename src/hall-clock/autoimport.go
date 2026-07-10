@@ -578,7 +578,7 @@ func parseMidweekTimings(input string) ([]Talk, error) {
 			ID:       len(talks) + 1,
 			Title:    title,
 			Duration: minutes * 60,
-			Closing:  min(120, minutes*30),
+			Closing:  derivedClosingSeconds(minutes),
 		})
 		previousTitle = ""
 	}

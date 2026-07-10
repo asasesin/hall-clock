@@ -378,7 +378,10 @@ func TestSaveConfigKeepsRunningTimer(t *testing.T) {
 	if state.CurrentTalkID != 2 || state.CurrentTalkTitle != "Renamed Talk" {
 		t.Fatalf("expected current talk to be preserved, got %d %q", state.CurrentTalkID, state.CurrentTalkTitle)
 	}
-	if state.DurationSeconds != 900 || state.ClosingSeconds != 90 {
+	// The edited duration applies, but the posted closing bell does not: the
+	// import defines it, and "Renamed Talk" matches nothing in the baseline, so
+	// it falls back to the import's formula for a 15-minute part.
+	if state.DurationSeconds != 900 || state.ClosingSeconds != derivedClosingSeconds(15) {
 		t.Fatalf("expected edited timing to apply, got duration=%d closing=%d", state.DurationSeconds, state.ClosingSeconds)
 	}
 	// Talk 2 started with 600s; the edit adds 300s, so remaining should be ~900.

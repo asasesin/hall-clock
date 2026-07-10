@@ -99,6 +99,40 @@ func (s *server) scheduleOverrideAppliesLocked(now time.Time) bool {
 	return scheduleOverrideApplies(s.config, s.state.Status, now)
 }
 
+// derivedClosingSeconds is the WOL import's definition of a part's closing
+// bell: how many seconds before time runs out the clock turns amber. It is the
+// only place the rule is written down — parseMidweekTimings and every save go
+// through it.
+func derivedClosingSeconds(minutes int) int {
+	return min(120, minutes*30)
+}
+
+// applyImportedClosingSeconds overwrites the closing bell on a submitted
+// schedule. The operator sees the value but cannot edit it: the import defines
+// it, so a save must never carry a client's idea of what it should be.
+//
+// Parts are matched to the baseline by title, which is what the import names
+// them. A renamed part, an added part, or one whose bell no longer fits its
+// shortened duration falls back to the import's own formula — a bell as long as
+// the part would paint the whole thing amber.
+func applyImportedClosingSeconds(schedule []Talk, baseline []Talk) {
+	imported := make(map[string]int, len(baseline))
+	for _, talk := range baseline {
+		imported[closingKey(talk.Title)] = talk.Closing
+	}
+	for i := range schedule {
+		closing, ok := imported[closingKey(schedule[i].Title)]
+		if !ok || closing >= schedule[i].Duration {
+			closing = derivedClosingSeconds(schedule[i].Duration / 60)
+		}
+		schedule[i].Closing = clamp(closing, 0, schedule[i].Duration)
+	}
+}
+
+func closingKey(title string) string {
+	return strings.ToLower(strings.TrimSpace(title))
+}
+
 func defaultSchedule() []Talk {
 	return []Talk{
 		{ID: 1, Title: "Opening Comments", Duration: 60, Closing: 30},

@@ -385,6 +385,11 @@ func (s *server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 		s.config.MidweekLanguageSources[language] = s.config.MidweekURL
 	}
 	s.config.AutoImportMidweek = body.AutoImportMidweek
+	// The closing bell belongs to the import, not to whoever posted this request.
+	// Restore it against the baseline before anything compares schedules, so a
+	// client that sent a stale or invented bell cannot make an unchanged program
+	// look edited.
+	applyImportedClosingSeconds(body.Schedule, s.config.Schedule)
 	// A hand-edited schedule is an override scoped to this meeting session, not a
 	// new baseline: it expires so the next congregation on a shared box starts
 	// from the imported program. Saving the baseline back clears the override,

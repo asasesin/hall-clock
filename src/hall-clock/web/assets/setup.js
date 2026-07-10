@@ -174,36 +174,25 @@
           value="${Math.round(part.durationSeconds / 60)}"
           aria-label="Minutes"
         >
+        <span class="part-caption" aria-hidden="true">Closing bell</span>
+        <span class="part-readonly" title="Set by the WOL import: seconds of amber warning before time is up">
+          ${Number(part.closingSeconds) || 0}s
+        </span>
         <button data-remove="${index}" class="row-remove" type="button" aria-label="Remove ${escapeAttr(part.title)}">Remove</button>
       `;
       partsList.appendChild(row);
     });
   }
 
-  // The closing bell (how many seconds before time is up the clock turns amber)
-  // is not editable here, so each part keeps whatever the import or the default
-  // gave it. Deriving it the way the WOL importer does keeps a hidden value sane
-  // whenever we have no better one to carry forward.
-  function derivedClosingSeconds(minutes) {
-    return Math.min(120, minutes * 30);
-  }
-
+  // The closing bell is displayed but not editable: the WOL import defines it,
+  // and the server restores it on every save (applyImportedClosingSeconds), so
+  // there is nothing to read back out of the form for it.
   function readPartsFromForm() {
     partsList.querySelectorAll("input").forEach((input) => {
       const index = Number(input.dataset.index);
       const field = input.dataset.field;
       if (field === "title") parts[index].title = input.value;
-      if (field === "minutes") {
-        const minutes = Number(input.value);
-        parts[index].durationSeconds = minutes * 60;
-        // A carried-over closing bell that no longer fits the shortened part
-        // would be clamped to the full duration server-side, painting the whole
-        // part amber. Nobody can see the field to fix that, so re-derive it.
-        const closing = parts[index].closingSeconds;
-        if (!(closing >= 0) || closing >= parts[index].durationSeconds) {
-          parts[index].closingSeconds = derivedClosingSeconds(minutes);
-        }
-      }
+      if (field === "minutes") parts[index].durationSeconds = Number(input.value) * 60;
     });
   }
 
@@ -219,7 +208,7 @@
 
   document.getElementById("addPartBtn").addEventListener("click", () => {
     readPartsFromForm();
-    parts.push({ title: `Item ${parts.length + 1}`, durationSeconds: 300, closingSeconds: derivedClosingSeconds(5) });
+    parts.push({ title: `Item ${parts.length + 1}`, durationSeconds: 300, closingSeconds: 120 });
     renderParts();
   });
 
@@ -321,7 +310,7 @@
     readPartsFromForm();
     parts.splice(Number(index), 1);
     if (parts.length === 0) {
-      parts.push({ title: "Item 1", durationSeconds: 300, closingSeconds: derivedClosingSeconds(5) });
+      parts.push({ title: "Item 1", durationSeconds: 300, closingSeconds: 120 });
     }
     renderParts();
   });
@@ -343,6 +332,13 @@
         autoImportMidweek: autoImportInput.checked,
         schedule: parts,
       });
+      // The server owns the closing bell and may re-derive it, so redraw from
+      // the saved midweek program rather than leave a stale number on screen.
+      // The POST response carries the runtime state (on a weekend, the weekend
+      // template), which must never be loaded into this editor.
+      const savedConfig = await fetchConfig();
+      parts = savedConfig.schedule || parts;
+      renderParts();
       saveStatus.textContent = "Saved";
       tokenWarning.classList.add("hidden");
       if (autoImportInput.checked) {

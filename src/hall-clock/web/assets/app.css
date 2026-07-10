@@ -1326,7 +1326,7 @@ textarea {
 
 .parts-list-head {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 112px auto;
+  grid-template-columns: minmax(0, 1fr) 112px 140px auto;
   gap: 10px;
   padding: 0 12px;
   color: var(--muted);
@@ -1342,7 +1342,7 @@ textarea {
 
 .part-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) 112px auto;
+  grid-template-columns: minmax(0, 1fr) 112px 140px auto;
   gap: 10px;
   align-items: center;
   border: 1px solid rgba(255, 255, 255, 0.06);
@@ -1353,6 +1353,18 @@ textarea {
 
 .part-title {
   min-width: 0;
+}
+
+/* Closing bell is derived by the WOL import, not chosen. Show it, but render it
+   as text so it never reads as a field the operator is expected to fill in.
+   Height matches .part-input so the row stays on one baseline. */
+.part-readonly {
+  display: flex;
+  align-items: center;
+  min-height: 46px;
+  padding: 0 12px;
+  color: var(--muted);
+  font-variant-numeric: tabular-nums;
 }
 
 /* The shared column header names these fields on wide screens. It is hidden at
@@ -1639,8 +1651,14 @@ textarea {
   }
 
   .part-input,
+  .part-readonly,
   .row-remove {
     grid-column: 1 / -1;
+  }
+
+  .part-readonly {
+    min-height: 0;
+    padding: 0;
   }
 
   .row-remove {
