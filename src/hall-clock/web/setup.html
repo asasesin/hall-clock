@@ -24,15 +24,14 @@
 
       <form id="setupForm" class="settings-form">
         <div class="settings-tabs" role="tablist" aria-label="Settings sections">
-          <button class="settings-tab active" type="button" role="tab" aria-selected="true" aria-controls="basicsPanel" data-settings-tab="basics">Basics</button>
+          <button class="settings-tab active" type="button" role="tab" aria-selected="true" aria-controls="settingsPanel" data-settings-tab="settings">Settings</button>
           <button class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="startsPanel" data-settings-tab="starts">Start times</button>
-          <button class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="importPanel" data-settings-tab="import">Import</button>
           <button class="settings-tab" type="button" role="tab" aria-selected="false" aria-controls="partsPanel" data-settings-tab="parts">Items</button>
         </div>
 
-        <section id="basicsPanel" class="settings-card settings-panel active" role="tabpanel" data-settings-panel="basics">
+        <section id="settingsPanel" class="settings-card settings-panel active" role="tabpanel" data-settings-panel="settings">
           <div class="section-title">
-            <h2>Basics</h2>
+            <h2>Settings</h2>
           </div>
 
           <div class="settings-grid-two">
@@ -64,18 +63,8 @@
             <option value="midweek">Midweek meeting</option>
             <option value="weekend">Weekend meeting</option>
           </select>
-        </section>
 
-        <section id="startsPanel" class="start-times-panel settings-card settings-panel" role="tabpanel" data-settings-panel="starts" hidden>
-          <div class="section-title">
-            <h2>Meeting start times</h2>
-            <button id="addStartBtn" class="small-button" type="button">Add start</button>
-          </div>
-          <div id="startsList" class="starts-list"></div>
-        </section>
-
-        <section id="importPanel" class="import-panel settings-card settings-panel" role="tabpanel" data-settings-panel="import" hidden>
-          <div class="section-title">
+          <div class="section-title settings-subsection">
             <h2>Midweek import</h2>
           </div>
           <label class="toggle-row">
@@ -98,6 +87,14 @@
               <button id="parseMidweekBtn" class="small-button" type="button">Preview pasted timings</button>
             </div>
           </details>
+        </section>
+
+        <section id="startsPanel" class="start-times-panel settings-card settings-panel" role="tabpanel" data-settings-panel="starts" hidden>
+          <div class="section-title">
+            <h2>Meeting start times</h2>
+            <button id="addStartBtn" class="small-button" type="button">Add start</button>
+          </div>
+          <div id="startsList" class="starts-list"></div>
         </section>
 
         <section id="partsPanel" class="settings-card settings-panel" role="tabpanel" data-settings-panel="parts" hidden>
