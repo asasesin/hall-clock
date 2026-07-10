@@ -37,18 +37,6 @@
         </div>
       </section>
 
-      <section class="language-panel tab-panel">
-        <label class="language-row">
-          <span>Part language</span>
-          <select id="languageSelect">
-            <option value="en">English</option>
-            <option value="es">Spanish</option>
-            <option value="tw">Twi</option>
-          </select>
-        </label>
-        <p id="languageStatus" class="language-hint">Available while idle. Uses already imported titles for this week.</p>
-      </section>
-
       <section id="timingPanel" class="tab-panel">
         <div class="button-grid compact-actions" aria-label="Adjust remaining time">
           <button data-adjust="-60" class="action adjust-action" type="button" aria-label="Subtract 1 minute">
@@ -63,27 +51,39 @@
       </section>
 
       <section id="partsPanel" class="tab-panel">
+        <label class="language-row">
+          <span>Schedule language</span>
+          <select id="languageSelect">
+            <option value="en">English</option>
+            <option value="es">Spanish</option>
+            <option value="tw">Twi</option>
+          </select>
+        </label>
+        <p id="languageStatus" class="language-hint hidden"></p>
         <div class="co-row">
           <div class="co-row-text">
             <span class="co-row-label">Circuit overseer visit</span>
-            <span class="co-row-hint" id="coHint">Swaps in the CO visit schedule for 3 hours</span>
+            <span class="co-row-hint hidden" id="coHint"></span>
           </div>
           <button id="coToggle" class="co-toggle" type="button" role="switch" aria-checked="false" aria-label="Circuit overseer visit" title="Swap in the circuit overseer visit schedule">
             <span class="co-toggle-track"><span class="co-toggle-thumb"></span></span>
           </button>
         </div>
-        <button id="partPickerBtn" class="part-picker-button" type="button" aria-expanded="false" aria-controls="partPickerList">
-          <span id="currentPartTitle">Select part</span>
-          <span id="currentPartDuration" class="part-duration"></span>
-        </button>
+        <div class="part-picker-field">
+          <span class="control-field-label">Current item</span>
+          <button id="partPickerBtn" class="part-picker-button" type="button" aria-expanded="false" aria-controls="partPickerList">
+            <span id="currentPartTitle">Select item</span>
+            <span id="currentPartDuration" class="part-duration"></span>
+          </button>
+        </div>
         <div id="partPickerList" class="part-picker-list hidden"></div>
         <button id="adhocPartBtn" class="temporary-part-button" type="button" aria-expanded="false" aria-controls="adhocPartPanel">
-          Add temporary part
+          Add temporary item
         </button>
         <form id="adhocPartPanel" class="adhoc-part-panel hidden">
           <label class="temporary-part-title">
             <span>Title</span>
-            <input id="adhocPartTitleInput" type="text" maxlength="80" placeholder="Additional Part">
+            <input id="adhocPartTitleInput" type="text" maxlength="80" placeholder="Additional item">
           </label>
           <label>
             <span>Min</span>
@@ -95,8 +95,6 @@
       </section>
 
       <footer class="controller-admin">
-        <a href="/pair">Pair device</a>
-        <span aria-hidden="true">·</span>
         <a href="/setup">Setup</a>
       </footer>
     </main>

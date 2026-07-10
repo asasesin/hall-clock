@@ -168,7 +168,7 @@ func (s *server) handleAdhocPart(w http.ResponseWriter, r *http.Request) {
 	}
 	title := strings.TrimSpace(body.Title)
 	if title == "" {
-		title = "Additional Part"
+		title = "Additional item"
 	}
 	seconds := clamp(body.Seconds, 60, 7200)
 
@@ -228,13 +228,13 @@ func (s *server) handleMovePart(w http.ResponseWriter, r *http.Request) {
 	}
 	if !s.talks[idx].Temporary {
 		s.mu.Unlock()
-		http.Error(w, "only temporary parts can be moved here", http.StatusConflict)
+		http.Error(w, "only temporary items can be moved here", http.StatusConflict)
 		return
 	}
 	next := idx + body.Delta
 	if next < 0 || next >= len(s.talks) {
 		s.mu.Unlock()
-		http.Error(w, "cannot move part further", http.StatusConflict)
+		http.Error(w, "cannot move item further", http.StatusConflict)
 		return
 	}
 	s.talks[idx], s.talks[next] = s.talks[next], s.talks[idx]

@@ -471,14 +471,29 @@ textarea {
   z-index: 1;
 }
 
-.language-panel {
+.language-row {
+  display: grid;
+  gap: 8px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: left;
+}
+
+#partsPanel .language-row {
+  margin-bottom: 4px;
+}
+
+#partsPanel .co-row {
+  margin-top: 4px;
+}
+
+.part-picker-field {
   display: grid;
   gap: 8px;
 }
 
-.language-row {
-  display: grid;
-  gap: 8px;
+.control-field-label {
   color: var(--muted);
   font-size: 12px;
   font-weight: 800;
@@ -955,7 +970,7 @@ textarea {
 
 .settings-form {
   display: grid;
-  gap: 14px;
+  gap: 12px;
   margin-top: 20px;
   padding-bottom: 32px;
 }
@@ -979,7 +994,6 @@ textarea {
 .parts-list {
   display: grid;
   gap: 8px;
-  margin-top: 12px;
 }
 
 .setup-shell {
@@ -1044,11 +1058,57 @@ textarea {
   box-shadow: 0 10px 26px rgba(0, 0, 0, 0.2);
 }
 
+.settings-tabs {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 6px;
+  padding: 5px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.025);
+}
+
+.settings-tab {
+  min-height: 38px;
+  border: 0;
+  border-radius: 8px;
+  background: transparent;
+  color: var(--muted);
+  font-weight: 800;
+  cursor: pointer;
+  transition: background-color 150ms ease, color 150ms ease;
+}
+
+.settings-tab:hover {
+  background: rgba(255, 255, 255, 0.05);
+  color: var(--text);
+}
+
+.settings-tab.active {
+  background: rgba(68, 220, 149, 0.14);
+  color: #e8fff0;
+}
+
+.settings-tab:focus-visible {
+  outline: 2px solid var(--blue);
+  outline-offset: 2px;
+}
+
+.settings-panel[hidden] {
+  display: none;
+}
+
 .settings-grid-two {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 16px;
   align-items: start;
+}
+
+.settings-subsection {
+  margin-top: 4px;
+  padding-top: 14px;
+  border-top: 1px solid var(--line);
 }
 
 .field {
@@ -1066,7 +1126,7 @@ textarea {
 
 .field input,
 .field select,
-.import-panel textarea {
+.manual-import textarea {
   width: 100%;
   border: 1px solid var(--line-strong);
   border-radius: 12px;
@@ -1152,13 +1212,13 @@ textarea {
 
 .field input:focus,
 .field select:focus,
-.import-panel textarea:focus {
+.manual-import textarea:focus {
   outline: none;
   border-color: rgba(57, 217, 138, 0.6);
   box-shadow: 0 0 0 3px rgba(57, 217, 138, 0.15);
 }
 
-.import-panel textarea {
+.manual-import textarea {
   min-height: 180px;
   margin: 8px 0 12px;
   resize: vertical;
@@ -1215,7 +1275,6 @@ textarea {
   margin: 0;
 }
 
-.template-panel,
 .import-panel,
 .start-times-panel {
   display: grid;
@@ -1223,7 +1282,6 @@ textarea {
   margin: 0;
 }
 
-.template-panel h2,
 .import-panel h2,
 .start-times-panel h2 {
   margin: 0 0 6px;
@@ -1231,7 +1289,6 @@ textarea {
   letter-spacing: -0.01em;
 }
 
-.template-panel p,
 .import-panel p,
 .start-times-panel p {
   margin: 0;
@@ -1244,16 +1301,10 @@ textarea {
   gap: 10px;
 }
 
-.settings-grid {
-  display: grid;
-  grid-template-columns: 150px 140px 1fr auto;
-  gap: 12px;
-}
-
 .start-row {
   display: grid;
-  grid-template-columns: 130px 120px minmax(160px, 1fr) minmax(220px, 1.4fr) auto;
-  gap: 12px;
+  grid-template-columns: 126px 112px minmax(150px, 0.9fr) minmax(200px, 1.2fr) auto;
+  gap: 8px;
 }
 
 .starts-list {
@@ -1407,14 +1458,9 @@ textarea {
 
 .pair-actions {
   display: grid;
-  grid-template-columns: 1fr 1fr;
+  grid-template-columns: 1fr;
   gap: 12px;
   margin-top: 18px;
-}
-
-/* When only "Open controller" is shown (unpaired device), let it fill the row. */
-.pair-actions.single {
-  grid-template-columns: 1fr;
 }
 
 .pair-actions .action {
@@ -1481,6 +1527,26 @@ textarea {
 @media (max-width: 640px) {
   .setup-shell {
     padding: 12px 10px 22px;
+  }
+
+  .setup-header h1 {
+    font-size: 30px;
+    line-height: 1.08;
+  }
+
+  .setup-nav {
+    display: grid;
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 8px;
+  }
+
+  .setup-nav a {
+    padding: 10px 12px;
+    text-align: center;
+  }
+
+  .settings-form {
+    margin-top: 14px;
   }
 
   .control-page .phone-shell {
@@ -1560,9 +1626,13 @@ textarea {
     grid-template-columns: 1fr;
   }
 
-  .settings-grid,
   .start-row {
     grid-template-columns: 1fr;
+  }
+
+  .settings-tab {
+    min-height: 42px;
+    font-size: 14px;
   }
 
   .settings-card {

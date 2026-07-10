@@ -20,7 +20,20 @@ else
   CHROMIUM=chromium
 fi
 
-PROFILE_DIR="${HOME}/.config/hall-clock-kiosk/chromium"
+# The display is a single-purpose kiosk. A persistent Chromium profile buys us
+# nothing, and deferred metrics/component caches once filled a 29G SD card until
+# the app could no longer write its config. Keep the active profile on tmpfs and
+# remove old persistent kiosk/browser caches opportunistically.
+rm -rf \
+  "${HOME}/.config/wall-clock-kiosk" \
+  "${HOME}/.config/hall-clock-kiosk/chromium/DeferredBrowserMetrics" \
+  "${HOME}/.config/hall-clock-kiosk/chromium/component_crx_cache" \
+  "${HOME}/.config/hall-clock-kiosk/chromium/extensions_crx_cache" \
+  "${HOME}/.config/hall-clock-kiosk/chromium/OnDeviceHeadSuggestModel" \
+  "${HOME}/.config/hall-clock-kiosk/chromium/WasmTtsEngine"
+
+PROFILE_DIR="/tmp/hall-clock-kiosk-chromium"
+rm -rf "$PROFILE_DIR"
 mkdir -p "$PROFILE_DIR"
 
 exec "$CHROMIUM" \
@@ -29,6 +42,11 @@ exec "$CHROMIUM" \
   --no-first-run \
   --noerrdialogs \
   --disable-infobars \
+  --disable-background-networking \
+  --disable-component-update \
+  --disable-metrics \
+  --disable-metrics-reporting \
+  --disable-sync \
   --disable-session-crashed-bubble \
   --check-for-update-interval=31536000 \
   --autoplay-policy=no-user-gesture-required \

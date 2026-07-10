@@ -255,7 +255,7 @@ func (s *server) applyCachedMidweekLanguageScheduleLocked(now time.Time, languag
 	}
 	cached, ok := s.config.MidweekLanguageSchedules[language]
 	if !ok || cached.ImportedWeek != isoWeekString(now) || len(cached.Schedule) == 0 {
-		return Config{}, State{}, false, fmt.Sprintf("%s parts are not imported for this week yet", languageName(language))
+		return Config{}, State{}, false, fmt.Sprintf("%s items are not imported for this week yet", languageName(language))
 	}
 	s.config.MeetingType = "midweek"
 	s.config.MidweekURL = cached.URL
@@ -282,12 +282,12 @@ func (s *server) importMidweekLanguage(ctx context.Context, now time.Time, langu
 	sourceURL, ok := s.midweekLanguageSourceLocked(language)
 	s.mu.Unlock()
 	if !ok {
-		return Config{}, State{}, false, fmt.Sprintf("%s parts are not available for this hall", languageName(language))
+		return Config{}, State{}, false, fmt.Sprintf("%s items are not available for this hall", languageName(language))
 	}
 
 	schedule, err := importMidweekFromURL(ctx, sourceURL)
 	if err != nil {
-		return Config{}, State{}, false, fmt.Sprintf("could not import %s parts: %v", languageName(language), err)
+		return Config{}, State{}, false, fmt.Sprintf("could not import %s items: %v", languageName(language), err)
 	}
 	if err := validateImportedLanguage(language, schedule); err != nil {
 		return Config{}, State{}, false, err.Error()

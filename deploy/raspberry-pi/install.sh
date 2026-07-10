@@ -42,8 +42,11 @@ install -m 0644 hall-clock-update.service "$UNIT_DIR/hall-clock-update.service"
 install -m 0644 hall-clock-update-check.service "$UNIT_DIR/hall-clock-update-check.service"
 install -m 0644 hall-clock-update.timer "$UNIT_DIR/hall-clock-update.timer"
 install -m 0644 hall-clock-update.path "$UNIT_DIR/hall-clock-update.path"
+install -m 0644 hall-clock-housekeeping.service "$UNIT_DIR/hall-clock-housekeeping.service"
+install -m 0644 hall-clock-housekeeping.timer "$UNIT_DIR/hall-clock-housekeeping.timer"
 install -m 0755 hall-clock-kiosk.sh "$APP_DIR/hall-clock-kiosk.sh"
 install -m 0755 hall-clock-update.sh "$APP_DIR/hall-clock-update.sh"
+install -m 0755 hall-clock-housekeeping.sh "$APP_DIR/hall-clock-housekeeping.sh"
 install -m 0644 Caddyfile "$CADDY_DIR/Caddyfile"
 chown -R pi:pi "$APP_DIR" "$CONFIG_DIR"
 
@@ -55,14 +58,20 @@ if id caddy >/dev/null 2>&1; then
 fi
 
 systemctl daemon-reload
+# Clean up units and kiosk state from the pre-rename wall-clock install. Leaving
+# the old Chromium kiosk running can fill /home with browser metrics/cache data.
+systemctl disable --now wall-clock.service wall-clock-kiosk.service 2>/dev/null || true
+rm -rf /home/pi/.config/wall-clock-kiosk
 systemctl enable hall-clock.service
 systemctl enable hall-clock-kiosk.service
 systemctl enable hall-clock-update.timer
 systemctl enable hall-clock-update.path
+systemctl enable hall-clock-housekeeping.timer
 systemctl restart hall-clock.service
 systemctl restart hall-clock-kiosk.service
 systemctl restart hall-clock-update.timer
 systemctl restart hall-clock-update.path
+systemctl restart hall-clock-housekeeping.timer
 systemctl restart caddy.service
 
 echo "Hall Clock installed."

@@ -22,9 +22,8 @@
           <p class="pair-url" id="pairUrl">Loading controller link...</p>
           <button id="copyLinkBtn" class="small-button pair-copy-button" type="button">Copy link</button>
         </div>
-        <div class="pair-actions" id="pairActions">
+        <div class="pair-actions">
           <a id="controlLink" class="action action-primary" href="/control">Open controller</a>
-          <a id="returnControlLink" class="action action-subtle" href="/control">Return to controller</a>
         </div>
       </section>
     </main>
@@ -32,19 +31,6 @@
       const pairUrlEl = document.getElementById("pairUrl");
       const controlLinkEl = document.getElementById("controlLink");
       const copyLinkBtn = document.getElementById("copyLinkBtn");
-
-      // "Open controller" carries the pairing token (it pairs this device).
-      // "Return to controller" is a plain link back and only makes sense once
-      // this browser is already paired — on a fresh device it would just bounce
-      // back to this pairing prompt. So show it only when a token already
-      // exists, and let "Open controller" fill the row otherwise.
-      // (Key mirrors shared.js TOKEN_KEY; pair.html doesn't load shared.js.)
-      const returnControlLink = document.getElementById("returnControlLink");
-      const pairActions = document.getElementById("pairActions");
-      if (!localStorage.getItem("wallClockControlToken")) {
-        returnControlLink.classList.add("hidden");
-        pairActions.classList.add("single");
-      }
 
       // navigator.clipboard only exists in a secure context. The pairing page
       // is normally served over plain HTTP on a LAN IP, where it is undefined,

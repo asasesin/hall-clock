@@ -67,6 +67,8 @@ The installer:
 - installs and enables `hall-clock-update.timer` (nightly check) and
   `hall-clock-update.path` (Update button), plus the two update units
   (see "Updates")
+- installs and enables `hall-clock-housekeeping.timer` to clean kiosk/browser
+  caches and keep journals bounded
 
 ## Updates
 
@@ -163,6 +165,21 @@ sudo systemctl start hall-clock-update.service        # install now
 journalctl -u hall-clock-update.service               # what it did
 cat /var/lib/hall-clock/update-status.json            # what the setup page shows
 /opt/hall-clock/hall-clock -version                   # what is running
+```
+
+## Housekeeping
+
+`hall-clock-housekeeping.timer` runs daily around 4:45 AM. It does not appear in
+the web UI. It removes known Chromium kiosk/cache directories, old wall-clock
+kiosk state, any abandoned `/opt/hall-clock/.update.*` staging directories,
+vacuum systemd journals to 100M, and runs `apt-get clean`.
+
+Useful commands:
+
+```sh
+systemctl list-timers hall-clock-housekeeping.timer
+sudo systemctl start hall-clock-housekeeping.service
+journalctl -u hall-clock-housekeeping.service
 ```
 
 To track a fork instead of the upstream repo, set the repo in

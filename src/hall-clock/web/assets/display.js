@@ -15,7 +15,7 @@
       ? WallClock.formatClock(state.now)
       : WallClock.formatTime(prestart ? state.prestartRemainingSeconds : state.remainingSeconds);
     statusFooter.textContent = prestart
-      ? `${state.prestartLabel ? `${state.prestartLabel} — starts` : "Starts"} at ${state.meetingStartTime}`
+      ? `${state.prestartLabel ? `${state.prestartLabel} — starts` : "Starts"} at ${WallClock.formatStartTime(state.meetingStartTime)}`
       : "";
     clockValue.textContent = WallClock.formatClock(state.now);
 
