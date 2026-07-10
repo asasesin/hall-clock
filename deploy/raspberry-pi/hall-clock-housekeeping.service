@@ -1,0 +1,6 @@
+[Unit]
+Description=Clean Hall Clock browser caches and bounded system caches
+
+[Service]
+Type=oneshot
+ExecStart=/opt/hall-clock/hall-clock-housekeeping.sh

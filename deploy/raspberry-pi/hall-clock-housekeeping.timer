@@ -1,0 +1,12 @@
+[Unit]
+Description=Clean Hall Clock browser caches daily
+
+[Timer]
+# Run after update checks and well outside normal meeting hours.
+OnCalendar=*-*-* 04:45:00
+RandomizedDelaySec=1800
+Persistent=true
+Unit=hall-clock-housekeeping.service
+
+[Install]
+WantedBy=timers.target
