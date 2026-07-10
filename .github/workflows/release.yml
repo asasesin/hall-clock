@@ -60,8 +60,25 @@ jobs:
           GOOS=linux GOARCH=arm GOARM=6 go build -ldflags "$LDFLAGS" \
             -o dist/hall-clock-linux-armv6 ./src/hall-clock
 
+      - name: Package Pi deploy files
+        run: |
+          set -euo pipefail
+          tar -C deploy/raspberry-pi -czf dist/hall-clock-raspberry-pi.tar.gz \
+            Caddyfile \
+            hall-clock.service \
+            hall-clock-kiosk.service \
+            hall-clock-kiosk.sh \
+            hall-clock-update.service \
+            hall-clock-update-check.service \
+            hall-clock-update.timer \
+            hall-clock-update.path \
+            hall-clock-update.sh \
+            hall-clock-housekeeping.service \
+            hall-clock-housekeeping.timer \
+            hall-clock-housekeeping.sh
+
       - name: Checksums
-        run: cd dist && sha256sum hall-clock-linux-* > SHA256SUMS
+        run: cd dist && sha256sum hall-clock-linux-* hall-clock-raspberry-pi.tar.gz > SHA256SUMS
 
       - name: Publish release
         env:
@@ -76,8 +93,5 @@ jobs:
             gh release create "$tag" \
               --title "$tag" \
               --generate-notes \
-              dist/hall-clock-linux-arm64 \
-              dist/hall-clock-linux-armv7 \
-              dist/hall-clock-linux-armv6 \
-              dist/SHA256SUMS
+              dist/*
           fi

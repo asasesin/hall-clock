@@ -84,9 +84,9 @@ git tag v1.2.3 && git push origin v1.2.3
 ```
 
 `.github/workflows/release.yml` vets, tests, cross-compiles the three Pi
-architectures (arm64, armv7, armv6), and publishes them to a GitHub Release with
-a `SHA256SUMS` file. The tag becomes the version the binary reports
-(`hall-clock -version`).
+architectures (arm64, armv7, armv6), packages the Raspberry Pi deploy files, and
+publishes them to a GitHub Release with a `SHA256SUMS` file. The tag becomes the
+version the binary reports (`hall-clock -version`).
 
 ### Checking (automatic, nightly)
 
@@ -116,10 +116,13 @@ Either way the updater:
   with the timer reset to idle, so updating mid-meeting would blank a running
   countdown on the projector. It checks `/api/state` and refuses if the status is
   not `idle`.
-- downloads the binary matching this Pi's CPU (`uname -m`)
-- verifies the download against `SHA256SUMS` before installing it
+- downloads the binary matching this Pi's CPU (`uname -m`) and the Raspberry Pi
+  deploy bundle
+- verifies both downloads against `SHA256SUMS` before installing them
 - installs by `rename()` within `/opt/hall-clock`, which is atomic — there is no
   moment where the binary is half-written
+- refreshes the systemd units, Caddyfile, kiosk script, updater script, and
+  housekeeping script from the deploy bundle
 - keeps the old binary as `hall-clock.previous` and **rolls back** if the new
   one fails to restart or does not answer on its socket within 15 seconds
 
@@ -194,9 +197,10 @@ To stop a hall from even checking, disable the timer:
 button's ability to install, disable the watcher:
 `sudo systemctl disable --now hall-clock-update.path`.
 
-The updater replaces only the binary. `install.sh` remains the first-time
-provisioning step — it is what writes the systemd units and the Caddyfile, so
-re-run it (or bump the units by hand) if those files change in a release.
+Older installs whose updater predates the deploy bundle still update only the
+binary. Bootstrap those once by re-running `install.sh` or manually installing
+the current `hall-clock-update.sh`; after that, future updates refresh the
+binary and deploy files together.
 
 Note that the updater does **not** verify a signature, only a checksum. The
 checksum is served by GitHub over TLS alongside the binary, so it defends
