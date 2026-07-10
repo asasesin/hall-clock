@@ -23,6 +23,16 @@
         <div id="timeValue" class="control-time">00:00</div>
         <p id="meetingOvertime" class="card-overrun hidden" role="status"></p>
         <p id="nextPart" class="card-next"></p>
+        <div class="timer-stepper" aria-label="Adjust remaining time">
+          <button data-adjust="-60" class="action adjust-action" type="button" aria-label="Subtract 1 minute">
+            <span class="adjust-symbol">-</span>
+            <span class="adjust-label">1 min</span>
+          </button>
+          <button data-adjust="60" class="action adjust-action" type="button" aria-label="Add 1 minute">
+            <span class="adjust-symbol">+</span>
+            <span class="adjust-label">1 min</span>
+          </button>
+        </div>
       </section>
 
       <section class="control-panel">
@@ -43,19 +53,6 @@
           <div class="advance-action-row">
             <button id="endBtn" class="action action-end" type="button">End meeting</button>
           </div>
-        </div>
-      </section>
-
-      <section id="timingPanel" class="tab-panel">
-        <div class="button-grid compact-actions" aria-label="Adjust remaining time">
-          <button data-adjust="-60" class="action adjust-action" type="button" aria-label="Subtract 1 minute">
-            <span class="adjust-symbol">-</span>
-            <span class="adjust-label">1 min</span>
-          </button>
-          <button data-adjust="60" class="action adjust-action" type="button" aria-label="Add 1 minute">
-            <span class="adjust-symbol">+</span>
-            <span class="adjust-label">1 min</span>
-          </button>
         </div>
       </section>
 

@@ -865,6 +865,18 @@ textarea {
   gap: 10px;
 }
 
+/* While idle, Restart time is hidden and Bell is the only control left in this
+   row -- let it span the full width so no half-empty slot is left behind. */
+.secondary-action-row:has(> .action.hidden) {
+  grid-template-columns: 1fr;
+}
+
+/* End meeting hides itself while idle; drop its row entirely so it leaves no
+   phantom gap in the action stack. */
+.advance-action-row:has(> #endBtn.hidden) {
+  display: none;
+}
+
 .compact-actions .action,
 .part-actions .action,
 .secondary-action-row .action {
@@ -878,13 +890,11 @@ textarea {
 }
 
 .adjust-action {
-  display: grid;
-  grid-template-columns: auto 1fr;
+  display: inline-flex;
   gap: 10px;
   align-items: center;
-  justify-content: start;
+  justify-content: center;
   padding: 12px 16px;
-  text-align: left;
 }
 
 .adjust-symbol {
@@ -899,6 +909,33 @@ textarea {
 .adjust-label {
   font-size: 16px;
   font-weight: 800;
+}
+
+/* The +/- stepper lives inside the timer card, divided from the readout above it
+   so it reads as part of the clock rather than a separate panel. */
+.timer-stepper {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-top: 16px;
+  padding-top: 16px;
+  border-top: 1px solid var(--line);
+  position: relative;
+  z-index: 1;
+}
+
+.timer-stepper .adjust-action {
+  min-height: 44px;
+  padding: 10px 14px;
+  background: rgba(255, 255, 255, 0.03);
+}
+
+.timer-stepper .adjust-symbol {
+  font-size: 24px;
+}
+
+.timer-stepper .adjust-label {
+  font-size: 15px;
 }
 
 .action {
@@ -1009,15 +1046,15 @@ textarea {
    to end. Confirming turns amber like every other two-tap action. */
 .action-end {
   min-height: 46px;
-  border-color: var(--line-strong);
-  background: #11161d;
-  color: #cdd5de;
+  border-color: rgba(244, 95, 87, 0.26);
+  background: linear-gradient(180deg, #1c1416, #16110f);
+  color: #e0b6b2;
   font-size: 15px;
 }
 
 .action-end:hover:not(:disabled) {
-  border-color: rgba(255, 255, 255, 0.28);
-  color: var(--text);
+  border-color: rgba(244, 95, 87, 0.5);
+  color: #f2cdc9;
 }
 
 .action-end.armed {
@@ -1061,11 +1098,23 @@ textarea {
 
 .action:disabled,
 .small-button:disabled {
-  opacity: 0.4;
+  opacity: 0.55;
   cursor: not-allowed;
-  filter: none;
+  filter: grayscale(0.35);
   transform: none;
   box-shadow: none;
+}
+
+/* Idle-disabled secondary controls (Restart time, End meeting) should read as
+   deliberately inert -- a flat, recessive surface -- rather than a see-through
+   gradient that looks accidentally faded. */
+.action-subtle:disabled,
+.action-end:disabled {
+  opacity: 1;
+  filter: none;
+  border-color: var(--line);
+  background: rgba(255, 255, 255, 0.015);
+  color: rgba(149, 160, 173, 0.5);
 }
 
 .settings-form {
