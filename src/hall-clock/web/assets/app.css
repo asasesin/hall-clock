@@ -719,36 +719,32 @@ textarea {
   cursor: not-allowed;
 }
 
+/* A rare, secondary action: a small round + button that sits left under the
+   picker, so it never competes with the Current item selector or reads as an
+   empty drop-zone the way a full-width dashed bar did. Its accessible name and
+   tooltip carry the "Add temporary item" meaning the icon alone can't. */
 .temporary-part-button {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  gap: 8px;
-  width: 100%;
-  min-height: 46px;
-  border: 1px dashed rgba(255, 255, 255, 0.16);
-  border-radius: 12px;
-  padding: 9px 12px;
+  justify-self: start;
+  width: 38px;
+  height: 38px;
+  margin-top: 2px;
+  border: 1px solid var(--line-strong);
+  border-radius: 50%;
   background: transparent;
-  color: #b8c1cc;
-  font-size: 14px;
-  font-weight: 700;
+  color: var(--muted);
   cursor: pointer;
   transition: border-color 150ms ease, color 150ms ease, background-color 150ms ease;
 }
 
-/* Leading + marks this as an add action; the ring echoes the dashed border so
-   the affordance reads at a glance without shouting. */
 .temporary-part-icon {
   display: inline-flex;
   align-items: center;
   justify-content: center;
-  width: 20px;
-  height: 20px;
-  border: 1px solid currentColor;
-  border-radius: 50%;
-  font-size: 15px;
-  font-weight: 400;
+  font-size: 21px;
+  font-weight: 600;
   line-height: 1;
 }
 
