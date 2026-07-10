@@ -485,6 +485,18 @@ textarea {
   text-align: left;
 }
 
+.part-picker-field {
+  display: grid;
+  gap: 8px;
+}
+
+.control-field-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 800;
+  text-align: left;
+}
+
 .language-row select {
   width: 100%;
   min-height: 44px;

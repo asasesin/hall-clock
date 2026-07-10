@@ -39,7 +39,7 @@
 
       <section class="language-panel tab-panel">
         <label class="language-row">
-          <span>Item language</span>
+          <span>Schedule language</span>
           <select id="languageSelect">
             <option value="en">English</option>
             <option value="es">Spanish</option>
@@ -72,10 +72,13 @@
             <span class="co-toggle-track"><span class="co-toggle-thumb"></span></span>
           </button>
         </div>
-        <button id="partPickerBtn" class="part-picker-button" type="button" aria-expanded="false" aria-controls="partPickerList">
-          <span id="currentPartTitle">Select item</span>
-          <span id="currentPartDuration" class="part-duration"></span>
-        </button>
+        <div class="part-picker-field">
+          <span class="control-field-label">Current item</span>
+          <button id="partPickerBtn" class="part-picker-button" type="button" aria-expanded="false" aria-controls="partPickerList">
+            <span id="currentPartTitle">Select item</span>
+            <span id="currentPartDuration" class="part-duration"></span>
+          </button>
+        </div>
         <div id="partPickerList" class="part-picker-list hidden"></div>
         <button id="adhocPartBtn" class="temporary-part-button" type="button" aria-expanded="false" aria-controls="adhocPartPanel">
           Add temporary item
