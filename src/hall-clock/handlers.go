@@ -649,7 +649,15 @@ func (s *server) changeTalk(w http.ResponseWriter, delta int) {
 			break
 		}
 	}
-	next := (idx + delta + len(s.talks)) % len(s.talks)
+	// A meeting is a list, not a loop. Advancing past the last item used to wrap
+	// silently back to the opening comments, which is never what an operator
+	// means at the end of the program.
+	next := idx + delta
+	if next < 0 || next >= len(s.talks) {
+		s.mu.Unlock()
+		http.Error(w, "no further item in the schedule", http.StatusConflict)
+		return
+	}
 	s.selectTalkLocked(s.talks[next].ID)
 	state := s.snapshotLocked()
 	s.mu.Unlock()
