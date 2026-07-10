@@ -148,13 +148,13 @@ func (s *server) handleSelect(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
+	now := s.clock()
 	s.mu.Lock()
-	// Same reason as changeTalk: bank the overtime of the part being left, as of
-	// now. Re-selecting the current part is a restart, not a departure, and a
-	// request for a part that does not exist leaves nothing behind.
-	s.recalculateLocked(s.clock())
+	s.recalculateLocked(now)
+	// Re-selecting the current part is a restart, not a departure, and a request
+	// for a part that does not exist leaves nothing behind.
 	if body.TalkID != s.state.CurrentTalkID && s.hasTalkLocked(body.TalkID) {
-		s.bankOvertimeLocked()
+		s.retireCurrentPartLocked(now)
 	}
 	ok := s.selectTalkLocked(body.TalkID)
 	state := s.snapshotLocked()
@@ -648,11 +648,12 @@ func (s *server) applyTemplate(w http.ResponseWriter, meetingType string, schedu
 }
 
 func (s *server) changeTalk(w http.ResponseWriter, delta int) {
+	now := s.clock()
 	s.mu.Lock()
 	// Recalculate before reading s.talks, never after: it purges stale ad-hoc
 	// parts and can swap the whole schedule, so an index taken beforehand may not
-	// survive it. It also refreshes OvertimeSeconds, which the bank below needs.
-	s.recalculateLocked(s.clock())
+	// survive it.
+	s.recalculateLocked(now)
 	idx := 0
 	for i, talk := range s.talks {
 		if talk.ID == s.state.CurrentTalkID {
@@ -670,7 +671,7 @@ func (s *server) changeTalk(w http.ResponseWriter, delta int) {
 		return
 	}
 	// The operator is leaving this part, so whatever it ran over is the meeting's.
-	s.bankOvertimeLocked()
+	s.retireCurrentPartLocked(now)
 	s.selectTalkLocked(s.talks[next].ID)
 	state := s.snapshotLocked()
 	s.mu.Unlock()
