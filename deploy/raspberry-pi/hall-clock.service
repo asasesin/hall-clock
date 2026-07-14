@@ -5,10 +5,17 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+# The .local name this Pi advertises in the pairing QR code. It defaults to
+# hallclock and is overridden per hall by /etc/hall-clock/hall.env (written by
+# install.sh from HALL_HOST), which no update touches — hall-clock-update.sh
+# reinstalls *this file* on every update, so the name must not be baked in here
+# or a second hall would be renamed back to hallclock on its next update.
+Environment=HALL_HOST=hallclock
+EnvironmentFile=-/etc/hall-clock/hall.env
 # Listen on a Unix socket, not a TCP port: no port to conflict with anything,
 # and the app is unreachable over the network — only Caddy (which shares the
 # socket's group; see README "Zero-port Unix socket") can connect.
-ExecStart=/opt/hall-clock/hall-clock -addr unix:/run/hall-clock/app.sock -config /etc/hall-clock/config.json -public-url http://hallclock.local
+ExecStart=/opt/hall-clock/hall-clock -addr unix:/run/hall-clock/app.sock -config /etc/hall-clock/config.json -public-url http://${HALL_HOST}.local
 # systemd creates/cleans /run/hall-clock owned by pi:pi; 0750 lets the pi group
 # (which includes caddy after `usermod -aG pi caddy`) traverse to the socket.
 RuntimeDirectory=hall-clock

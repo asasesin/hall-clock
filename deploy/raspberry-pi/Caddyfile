@@ -1,12 +1,24 @@
 # Plain HTTP on port 80. This is the right choice for bring-your-own phones on
 # a `.local` name: no certificate warnings (there is no warning-free HTTPS on a
-# .local name), and the app advertises http://hallclock.local.
+# .local name), and the app advertises http://<this Pi's name>.local.
 #
 # Security here is the trusted LAN, not the transport — keep the device on an
 # isolated network and never expose it to the internet.
-# Phones use hallclock.local; the on-Pi kiosk uses localhost so the TV display
-# never depends on the Pi resolving its own .local name via mDNS.
-http://hallclock.local, http://localhost {
+#
+# The site is matched by *shape*, not by a fixed name: any single-label .local
+# host, so hallclock.local and hallclock-b.local (two halls on one LAN) are both
+# served by the same shipped file. That matters because hall-clock-update.sh
+# reinstalls this Caddyfile on every update — a hostname baked in here would be
+# reverted on the next update, and a renamed Pi would start 404ing.
+#
+# Keeping the host matcher (rather than a bare :80) is deliberate: it means a
+# request arriving with some other Host is not served at all, which is what turns
+# away a DNS-rebinding attempt from an attacker-controlled domain. A .local name
+# is mDNS-only and cannot be pointed at this Pi from outside the LAN.
+#
+# Phones use <name>.local; the on-Pi kiosk uses localhost so the TV display never
+# depends on the Pi resolving its own .local name via mDNS.
+http://*.local, http://localhost {
 	# The app listens on a Unix socket (no TCP port). Caddy connects to it as a
 	# member of the socket's group — see README "Zero-port Unix socket".
 	reverse_proxy unix//run/hall-clock/app.sock
