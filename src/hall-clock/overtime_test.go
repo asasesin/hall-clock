@@ -65,22 +65,26 @@ func TestMeetingOvertimeIgnoresUndertime(t *testing.T) {
 	}
 }
 
-// Restarting the part you are on is not leaving it, so nothing is banked twice.
-func TestMeetingOvertimeNotBankedOnRestartOrReselect(t *testing.T) {
+// Stop timer leaves the item, so it banks the live overtime and stages what
+// comes next.
+func TestMeetingOvertimeBankedOnStopTimer(t *testing.T) {
+	h := newOverrideHarness(t)
+
+	h.runPartOver(45 * time.Second)
+	h.post("/api/control/reset", "")
+	if got := h.state().MeetingOvertimeSeconds; got != 45 {
+		t.Fatalf("stop timer did not bank current part overtime, got %ds want 45", got)
+	}
+}
+
+// Re-selecting the part you are on is a restart, not leaving it, so nothing is
+// banked twice.
+func TestMeetingOvertimeNotBankedOnReselect(t *testing.T) {
 	h := newOverrideHarness(t)
 
 	h.runPartOver(45 * time.Second)
 	current := h.state().CurrentTalkID
 
-	// Restarting the time gives the current part its full clock back, so its
-	// live overtime disappears rather than being banked.
-	h.post("/api/control/reset", "")
-	if got := h.state().MeetingOvertimeSeconds; got != 0 {
-		t.Fatalf("restart banked the current part's overtime, got %ds want 0", got)
-	}
-
-	// Re-selecting the same part is also a restart.
-	h.runPartOver(45 * time.Second)
 	h.post("/api/control/select", fmt.Sprintf(`{"talkId":%d}`, current))
 	if got := h.state().MeetingOvertimeSeconds; got != 0 {
 		t.Fatalf("re-selecting the current part banked its overtime, got %ds want 0", got)

@@ -53,7 +53,7 @@
     if (!timerCommandPending) {
       startBtn.textContent = state.status === "running" ? "Pause" : state.status === "paused" ? "Resume" : "Start";
     }
-    // Restart time and End meeting only act on a live clock, so they are hidden
+    // Stop timer and End meeting only act on a live clock, so they are hidden
     // outright while idle rather than shown greyed -- the panel reads as fully
     // available at rest instead of half-disabled.
     const idle = state.status === "idle";
@@ -81,7 +81,7 @@
       languageSelect.value = appliedLanguage;
     }
     if (languageSelect) {
-      languageSelect.disabled = languageCommandPending || state.status !== "idle" || state.meetingType === "weekend";
+      languageSelect.disabled = languageCommandPending || state.status !== "idle";
     }
     if (languageStatus && !languageCommandPending && !languageStatus.classList.contains("error")) {
       languageStatus.textContent = state.status === "idle"
@@ -111,14 +111,20 @@
     // How far the whole meeting is behind, not just this part. Absent until it
     // exists: a meeting running to time should show nothing at all.
     const behind = state.meetingOvertimeSeconds || 0;
-    meetingOvertime.textContent = behind > 0 ? `Meeting ${WallClock.formatTime(behind)} behind` : "";
-    meetingOvertime.classList.toggle("hidden", behind <= 0);
+    const liveOvertime = Math.max(0, -(state.remainingSeconds || 0));
+    const showMeetingOvertime = behind > 0 && behind !== liveOvertime;
+    meetingOvertime.textContent = showMeetingOvertime ? `Meeting ${WallClock.formatTime(behind)} behind` : "";
+    meetingOvertime.classList.toggle("hidden", !showMeetingOvertime);
 
     // Nothing follows the last item, so the button retires instead of wrapping.
     // Leave an armed label alone: overwriting it mid-confirmation would drop the
     // operator's first tap on the next state broadcast.
     const atEnd = !next;
     nextBtn.disabled = timerCommandPending || atEnd;
+    resetBtn.disabled = timerCommandPending || atEnd;
+    if (resetBtn.disabled && resetBtn.classList.contains("armed")) {
+      disarmReset();
+    }
     if (!nextBtn.classList.contains("armed")) {
       nextBtn.textContent = atEnd ? "Meeting complete" : "Next part";
     }
@@ -290,7 +296,7 @@
     clearTimeout(resetArmTimeout);
     resetArmTimeout = null;
     resetBtn.classList.remove("armed");
-    resetBtn.textContent = "Restart time";
+    resetBtn.textContent = "Stop timer";
   }
 
   function disarmEnd() {
@@ -409,9 +415,10 @@
     }
   });
   resetBtn.addEventListener("click", () => {
+    if (resetBtn.disabled) return;
     if (!resetBtn.classList.contains("armed")) {
       resetBtn.classList.add("armed");
-      resetBtn.textContent = "Confirm restart";
+      resetBtn.textContent = "Confirm stop";
       resetArmTimeout = setTimeout(disarmReset, 3000);
       return;
     }

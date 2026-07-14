@@ -5,6 +5,8 @@ import (
 	"time"
 )
 
+const meetingStartLanguageLead = 30 * time.Minute
+
 // applyScheduleLocked swaps in a new schedule without killing an in-progress
 // timer: while running or paused, the current talk keeps counting and an
 // edited duration shifts the remaining time like a manual adjust would.
@@ -299,13 +301,113 @@ func (s *server) purgeStaleTemporaryPartsLocked(cutoff time.Time) {
 	s.selectTalkLocked(kept[0].ID)
 }
 
-// latestMeetingStart returns the most recent configured meeting start at or
-// before now, looking back up to a week.
-func latestMeetingStart(now time.Time, starts []MeetingStart) (time.Time, bool) {
+// syncMeetingStartLanguageLocked applies the language implied by the active or
+// imminent meeting start. Shared halls can list each congregation's start time
+// with its own language, so an idle clock should follow the congregation whose
+// meeting is about to start instead of making the operator switch manually.
+func (s *server) syncMeetingStartLanguageLocked(now time.Time) {
+	if s.state.Status != StatusIdle {
+		return
+	}
+	start, _, ok := languageMeetingStartSlot(now, s.config.MeetingStarts)
+	if !ok {
+		return
+	}
+	language := meetingStartLanguage(start)
+	if language == "" || language == s.config.MidweekLanguage {
+		return
+	}
+
+	if meetingTypeForTime(now) == "midweek" {
+		cached, ok := s.config.MidweekLanguageSchedules[language]
+		if !ok || cached.ImportedWeek != isoWeekString(now) || len(cached.Schedule) == 0 {
+			return
+		}
+		s.config.MidweekURL = cached.URL
+		s.config.MidweekImportedWeek = cached.ImportedWeek
+		s.setBaselineScheduleLocked(append([]Talk(nil), cached.Schedule...))
+		normalizeSchedule(s.config.Schedule)
+	} else {
+		source := meetingStartSource(start, s.config.MidweekURL)
+		if source.exampleURL != "" {
+			s.config.MidweekURL = source.exampleURL
+		}
+	}
+	s.config.MidweekLanguage = language
+	s.state.MidweekLanguage = language
+	s.applyActiveScheduleChangeLocked(now)
+}
+
+func languageMeetingStartSlot(now time.Time, starts []MeetingStart) (MeetingStart, time.Time, bool) {
+	if start, startAt, ok := upcomingLanguageMeetingStartSlot(now, starts); ok {
+		return start, startAt, true
+	}
+	return latestLanguageMeetingStartSlot(now, starts)
+}
+
+func upcomingLanguageMeetingStartSlot(now time.Time, starts []MeetingStart) (MeetingStart, time.Time, bool) {
+	var selected MeetingStart
+	var selectedAt time.Time
+	found := false
+	for _, slot := range starts {
+		hourMinute, err := parseClockTime(slot.Time)
+		if err != nil {
+			continue
+		}
+		for dayOffset := 0; dayOffset <= 7; dayOffset++ {
+			day := now.AddDate(0, 0, dayOffset)
+			if int(day.Weekday()) != slot.Day {
+				continue
+			}
+			start := time.Date(day.Year(), day.Month(), day.Day(), hourMinute.hour, hourMinute.minute, 0, 0, now.Location())
+			windowStart := start.Add(-meetingStartLanguageLead)
+			if now.Before(windowStart) || now.After(start) {
+				continue
+			}
+			if !found || start.Before(selectedAt) {
+				selected = slot
+				selectedAt = start
+				found = true
+			}
+		}
+	}
+	return selected, selectedAt, found
+}
+
+func latestLanguageMeetingStartSlot(now time.Time, starts []MeetingStart) (MeetingStart, time.Time, bool) {
+	var selected MeetingStart
+	var selectedAt time.Time
+	found := false
+	for _, slot := range starts {
+		hourMinute, err := parseClockTime(slot.Time)
+		if err != nil {
+			continue
+		}
+		for dayOffset := -1; dayOffset <= 0; dayOffset++ {
+			day := now.AddDate(0, 0, dayOffset)
+			if int(day.Weekday()) != slot.Day {
+				continue
+			}
+			start := time.Date(day.Year(), day.Month(), day.Day(), hourMinute.hour, hourMinute.minute, 0, 0, now.Location())
+			if start.After(now) || !now.Before(start.Add(circuitOverseerDuration)) {
+				continue
+			}
+			if !found || start.After(selectedAt) {
+				selected = slot
+				selectedAt = start
+				found = true
+			}
+		}
+	}
+	return selected, selectedAt, found
+}
+
+func latestMeetingStartSlot(now time.Time, starts []MeetingStart) (MeetingStart, time.Time, bool) {
 	for dayOffset := 0; dayOffset < 8; dayOffset++ {
 		day := now.AddDate(0, 0, -dayOffset)
 		weekday := int(day.Weekday())
-		var best time.Time
+		var best MeetingStart
+		var bestAt time.Time
 		found := false
 		for _, slot := range starts {
 			if slot.Day != weekday {
@@ -319,16 +421,24 @@ func latestMeetingStart(now time.Time, starts []MeetingStart) (time.Time, bool) 
 			if start.After(now) {
 				continue
 			}
-			if !found || start.After(best) {
-				best = start
+			if !found || start.After(bestAt) {
+				best = slot
+				bestAt = start
 				found = true
 			}
 		}
 		if found {
-			return best, true
+			return best, bestAt, true
 		}
 	}
-	return time.Time{}, false
+	return MeetingStart{}, time.Time{}, false
+}
+
+// latestMeetingStart returns the most recent configured meeting start at or
+// before now, looking back up to a week.
+func latestMeetingStart(now time.Time, starts []MeetingStart) (time.Time, bool) {
+	_, start, ok := latestMeetingStartSlot(now, starts)
+	return start, ok
 }
 
 func (s *server) applyActiveScheduleChangeLocked(now time.Time) {
@@ -350,6 +460,7 @@ func (s *server) applyActiveScheduleChangeLocked(now time.Time) {
 }
 
 func (s *server) recalculateLocked(now time.Time) {
+	s.syncMeetingStartLanguageLocked(now)
 	s.syncCircuitOverseerLocked(now)
 	s.syncScheduleOverrideLocked(now)
 	s.syncActiveScheduleLocked(now)

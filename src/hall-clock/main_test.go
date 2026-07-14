@@ -114,6 +114,143 @@ func TestMidweekLanguageSwitchUsesCachedSchedule(t *testing.T) {
 	}
 }
 
+func TestLanguageSwitchUpdatesWeekendSchedule(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 7, 12, 10, 0, 0, 0, time.UTC) // Sunday
+	srv.clock = func() time.Time { return now }
+
+	srv.mu.Lock()
+	srv.config.MidweekLanguageSchedules = map[string]MidweekLanguageSchedule{
+		"es": {
+			ImportedWeek: isoWeekString(now),
+			URL:          "https://wol.jw.org/es/wol/d/r4/lp-s/202026241",
+			Schedule: []Talk{
+				{ID: 1, Title: "Comentarios de introducción", Duration: 60, Closing: 30},
+			},
+		},
+	}
+	_, state, ok, message := srv.applyCachedMidweekLanguageScheduleLocked(now, "es")
+	srv.mu.Unlock()
+
+	if !ok {
+		t.Fatalf("expected cached Spanish schedule to apply on weekend: %s", message)
+	}
+	if state.MeetingType != "weekend" {
+		t.Fatalf("expected active weekend meeting, got %q", state.MeetingType)
+	}
+	if len(state.Schedule) != 2 || state.Schedule[0].Title != "Discurso público" || state.Schedule[1].Title != "Estudio de La Atalaya" {
+		t.Fatalf("expected Spanish weekend schedule, got %+v", state.Schedule)
+	}
+}
+
+func TestMeetingStartLanguageAutoSwitchesWeekendSchedule(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 7, 11, 18, 30, 0, 0, time.UTC) // Saturday, 30 minutes before 7:00 PM
+	srv.clock = func() time.Time { return now }
+
+	srv.mu.Lock()
+	srv.config.MidweekLanguage = "en"
+	srv.config.MeetingStarts = normalizeMeetingStarts([]MeetingStart{
+		{
+			Day:      int(time.Saturday),
+			Time:     "19:00",
+			Language: "tw",
+		},
+	}, "19:00")
+	srv.mu.Unlock()
+
+	state := srv.snapshot()
+	if state.MidweekLanguage != "tw" {
+		t.Fatalf("expected active language to switch to Twi, got %q", state.MidweekLanguage)
+	}
+	if state.MeetingType != "weekend" {
+		t.Fatalf("expected active weekend meeting, got %q", state.MeetingType)
+	}
+	if len(state.Schedule) != 2 || state.Schedule[0].Title != "Baguam Kasa" || state.Schedule[1].Title != "Ɔwɛn-Aban Adesua" {
+		t.Fatalf("expected Twi weekend schedule, got %+v", state.Schedule)
+	}
+}
+
+func TestMeetingStartLanguageAutoSwitchesMidweekScheduleFromCache(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 7, 6, 18, 30, 0, 0, time.UTC) // Monday, 30 minutes before 7:00 PM
+	srv.clock = func() time.Time { return now }
+
+	srv.mu.Lock()
+	srv.config.MidweekLanguage = "en"
+	srv.config.MeetingStarts = normalizeMeetingStarts([]MeetingStart{
+		{
+			Day:      int(time.Monday),
+			Time:     "19:00",
+			Language: "es",
+		},
+	}, "19:00")
+	srv.config.MidweekLanguageSchedules = map[string]MidweekLanguageSchedule{
+		"es": {
+			ImportedWeek: isoWeekString(now),
+			URL:          "https://wol.jw.org/es/wol/d/r4/lp-s/202026241",
+			Schedule: []Talk{
+				{ID: 1, Title: "Comentarios de introducción", Duration: 60, Closing: 30},
+			},
+		},
+	}
+	srv.mu.Unlock()
+
+	state := srv.snapshot()
+	if state.MidweekLanguage != "es" {
+		t.Fatalf("expected active language to switch to Spanish, got %q", state.MidweekLanguage)
+	}
+	if state.MeetingType != "midweek" {
+		t.Fatalf("expected active midweek meeting, got %q", state.MeetingType)
+	}
+	if len(state.Schedule) != 1 || state.Schedule[0].Title != "Comentarios de introducción" {
+		t.Fatalf("expected cached Spanish midweek schedule, got %+v", state.Schedule)
+	}
+}
+
+func TestMeetingStartLanguageAutoSwitchPrefersUpcomingStart(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 7, 6, 20, 30, 0, 0, time.UTC) // 30 minutes before the second meeting
+	srv.clock = func() time.Time { return now }
+
+	srv.mu.Lock()
+	srv.config.MidweekLanguage = "es"
+	srv.config.MeetingStarts = normalizeMeetingStarts([]MeetingStart{
+		{Day: int(time.Monday), Time: "19:00", Language: "es"},
+		{Day: int(time.Monday), Time: "21:00", Language: "tw"},
+	}, "19:00")
+	srv.config.MidweekLanguageSchedules = map[string]MidweekLanguageSchedule{
+		"tw": {
+			ImportedWeek: isoWeekString(now),
+			URL:          "https://wol.jw.org/tw/wol/d/r33/lp-tw/202026241",
+			Schedule: []Talk{
+				{ID: 1, Title: "Nnianim Nsɛm", Duration: 60, Closing: 30},
+			},
+		},
+	}
+	srv.mu.Unlock()
+
+	state := srv.snapshot()
+	if state.MidweekLanguage != "tw" {
+		t.Fatalf("expected upcoming Twi start to win, got %q", state.MidweekLanguage)
+	}
+	if len(state.Schedule) != 1 || state.Schedule[0].Title != "Nnianim Nsɛm" {
+		t.Fatalf("expected cached Twi midweek schedule, got %+v", state.Schedule)
+	}
+}
+
 func TestMidweekLanguageSwitchRejectsMissingCurrentWeekCache(t *testing.T) {
 	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
 	if err != nil {
@@ -1071,6 +1208,34 @@ func TestNextAutoImportSourceUsesUpcomingMeetingLanguage(t *testing.T) {
 	}
 }
 
+func TestNextAutoImportSourceUsesStartLanguageWithoutURL(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	now := time.Date(2026, 7, 6, 3, 5, 0, 0, time.UTC)
+	srv.mu.Lock()
+	srv.config.AutoImportMidweek = true
+	srv.config.MidweekURL = "https://wol.jw.org/en/wol/d/r1/lp-e/202026241"
+	srv.config.MeetingStarts = normalizeMeetingStarts([]MeetingStart{
+		{
+			Day:      int(time.Monday),
+			Time:     "19:00",
+			Language: "tw",
+		},
+	}, "19:00")
+	source, due := srv.nextAutoImportSourceLocked(now)
+	srv.mu.Unlock()
+
+	if !due {
+		t.Fatal("expected upcoming Twi meeting to be due")
+	}
+	if source.exampleURL != defaultMidweekLanguageSources["tw"] {
+		t.Fatalf("expected default Twi source, got %s", source.exampleURL)
+	}
+}
+
 func TestNextAutoImportSourceWaitsForCurrentMeetingBeforeFutureLanguage(t *testing.T) {
 	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
 	if err != nil {
@@ -1664,6 +1829,43 @@ func TestSetupResponsesReturnSavedScheduleNotRuntime(t *testing.T) {
 		if talk.Temporary {
 			t.Fatalf("expected no temporary parts in setup response, got %+v", state.Schedule)
 		}
+	}
+}
+
+func TestSaveConfigDefaultsStartLanguageToConfiguredLanguage(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.config.MidweekLanguage = "es"
+	srv.config.MidweekURL = "https://wol.jw.org/es/wol/d/r4/lp-s/202026241"
+	mux, err := srv.routes("")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	body := `{
+		"deviceName":"Hall Clock",
+		"meetingType":"midweek",
+		"meetingStartTime":"19:00",
+		"meetingStarts":[{"day":1,"time":"19:00"}],
+		"prestartSeconds":300,
+		"midweekUrl":"https://wol.jw.org/es/wol/d/r4/lp-s/202026241",
+		"schedule":[{"title":"Part 1","durationSeconds":300,"closingSeconds":60}]
+	}`
+	req := httptest.NewRequest(http.MethodPost, "/api/config", strings.NewReader(body))
+	req.Header.Set("X-Wall-Clock-Token", srv.config.ControlToken)
+	res := httptest.NewRecorder()
+	mux.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected OK save response, got %d: %s", res.Code, res.Body.String())
+	}
+
+	srv.mu.Lock()
+	starts := append([]MeetingStart(nil), srv.config.MeetingStarts...)
+	srv.mu.Unlock()
+	if len(starts) != 1 || starts[0].Language != "es" {
+		t.Fatalf("expected missing start language to inherit Spanish, got %+v", starts)
 	}
 }
 

@@ -16,6 +16,7 @@
   const tabPanels = Array.from(document.querySelectorAll("[data-settings-panel]"));
   let parts = [];
   let meetingStarts = [];
+  let defaultScheduleLanguage = "en";
   const dayLabels = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
 
   async function load() {
@@ -26,6 +27,7 @@
     renderMeetingType(config.meetingType || "midweek");
     prestartMinutesInput.value = Math.round((config.prestartSeconds || 300) / 60);
     midweekUrlInput.value = config.midweekUrl || "";
+    defaultScheduleLanguage = normalizeLanguage(config.midweekLanguage) || languageFromURL(config.midweekUrl) || "en";
     autoImportInput.checked = Boolean(config.autoImportMidweek);
     renderAutoStatus(config);
     meetingStarts = config.meetingStarts || defaultMeetingStarts(config.meetingStartTime || "19:30");
@@ -100,9 +102,10 @@
       day,
       time,
       congregation: "",
+      language: "en",
       midweekUrl: "",
     }));
-    starts.push({ id: starts.length + 1, day: 0, time: "10:00", congregation: "", midweekUrl: "" });
+    starts.push({ id: starts.length + 1, day: 0, time: "10:00", congregation: "", language: "en", midweekUrl: "" });
     return starts;
   }
 
@@ -123,12 +126,10 @@
           <input data-start-field="time" data-index="${index}" type="time" value="${escapeAttr(start.time || "19:30")}">
         </label>
         <label class="field">
-          <span>Congregation</span>
-          <input data-start-field="congregation" data-index="${index}" type="text" value="${escapeAttr(start.congregation || "")}" placeholder="Optional">
-        </label>
-        <label class="field">
-          <span>WOL URL</span>
-          <input data-start-field="midweekUrl" data-index="${index}" type="url" value="${escapeAttr(start.midweekUrl || "")}" placeholder="Optional language source">
+          <span>Schedule language</span>
+          <select data-start-field="language" data-index="${index}">
+            ${languageOptions(start.language || languageFromURL(start.midweekUrl) || defaultScheduleLanguage)}
+          </select>
         </label>
         <button data-remove-start="${index}" class="row-remove" type="button" aria-label="Remove this start time">Remove</button>
       `;
@@ -142,9 +143,37 @@
       const field = input.dataset.startField;
       if (field === "day") meetingStarts[index].day = Number(input.value);
       if (field === "time") meetingStarts[index].time = input.value;
-      if (field === "congregation") meetingStarts[index].congregation = input.value;
-      if (field === "midweekUrl") meetingStarts[index].midweekUrl = input.value;
+      if (field === "language") {
+        meetingStarts[index].language = input.value;
+        meetingStarts[index].congregation = "";
+        meetingStarts[index].midweekUrl = "";
+        meetingStarts[index].midweekImportedWeek = "";
+      }
     });
+  }
+
+  function languageOptions(selected) {
+    return [
+      ["en", "English"],
+      ["es", "Spanish"],
+      ["tw", "Twi"],
+    ].map(([value, label]) => `<option value="${value}" ${selected === value ? "selected" : ""}>${label}</option>`).join("");
+  }
+
+  function languageFromURL(value) {
+    const match = String(value || "").match(/^https?:\/\/wol\.jw\.org\/([^/]+)\//);
+    const language = match ? match[1] : "";
+    if (language === "es") return "es";
+    if (language === "tw") return "tw";
+    return language === "en" ? "en" : "";
+  }
+
+  function normalizeLanguage(value) {
+    const language = String(value || "").trim().toLowerCase();
+    if (language === "en" || language === "english") return "en";
+    if (language === "es" || language === "spanish") return "es";
+    if (language === "tw" || language === "twi") return "tw";
+    return "";
   }
 
   function renderParts() {
@@ -234,6 +263,7 @@
       day: last ? Number(last.day) : 1,
       time: last ? last.time : "19:30",
       congregation: "",
+      language: "en",
       midweekUrl: "",
     });
     renderStarts();

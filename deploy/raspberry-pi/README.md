@@ -14,15 +14,9 @@ boot.
 - Raspberry Pi OS with desktop
 - Chromium installed
 - Wi-Fi or Ethernet connected to the same network as controller phones
-- Hostname set to `hallclock` for `http://hallclock.local`
 
-Set the hostname:
-
-```sh
-sudo raspi-config
-```
-
-Choose `System Options` -> `Hostname` -> `hallclock`, then reboot.
+The installer sets the hostname itself, so the Pi answers on
+`http://hallclock.local`. Nothing to do in `raspi-config`.
 
 ## Build Binary
 
@@ -52,6 +46,7 @@ sudo ./install.sh
 
 The installer:
 
+- sets the hostname to `hallclock` (see "Two Halls On One LAN" to change it)
 - installs `/opt/hall-clock/hall-clock`
 - creates `/etc/hall-clock/config.json` on first run
 - installs `caddy` with `apt` when missing
@@ -69,6 +64,91 @@ The installer:
   (see "Updates")
 - installs and enables `hall-clock-housekeeping.timer` to clean kiosk/browser
   caches and keep journals bounded
+
+## Two Halls On One LAN
+
+One Pi per hall. They are independent appliances — separate config, separate
+schedule, separate control token — so a phone paired to one hall can never drive
+the other's clock. The only thing they collide over is the *name*: two Pis both
+claiming `hallclock.local` is an mDNS conflict, and phones then pair with
+whichever one won the race that boot.
+
+Give each Pi its own name at install time:
+
+```sh
+sudo HALL_HOST=hallclock-b ./install.sh /tmp/hall-clock
+```
+
+That one variable sets the system hostname and the `-public-url` behind the
+pairing QR code, which is what keeps a phone scanning Hall B's QR code on Hall B's
+clock. Lowercase letters, digits, and inner hyphens only. The default is
+`hallclock`, so the first hall needs no variable at all.
+
+Then open `http://hallclock-b.local/setup` and set **Device name** ("Hall B").
+That is what the controller shows in its title, so an operator can tell at a
+glance which hall the phone in their hand is driving.
+
+The TV display needs nothing: the kiosk loads `localhost`, deliberately, so it
+never depends on the Pi resolving its own `.local` name.
+
+### The name survives updates
+
+`install.sh` writes `HALL_HOST` to `/etc/hall-clock/hall.env`, and
+`hall-clock.service` reads it (defaulting to `hallclock` when the file is absent,
+which is every Pi installed before this existed). Nothing else carries the name:
+
+- the **unit** takes it from `hall.env` at start
+- the **Caddyfile** never names the hall at all — it matches `*.local`, so one
+  shipped file serves `hallclock.local` and `hallclock-b.local` alike
+
+This layout is not incidental. `hall-clock-update.sh` reinstalls the units *and*
+the Caddyfile from the release payload on every update, so a name baked into
+either file would be silently reverted the next time someone tapped Update — Hall
+B would go back to advertising `hallclock.local` and start 404ing on its own name.
+`hall.env` is not part of the payload, so an update never touches it.
+
+Caddy keeps a host matcher (rather than a bare `:80`) on purpose: a request whose
+`Host` is some other domain is answered by Caddy and never reaches the app, which
+is what turns away a DNS-rebinding attempt. A `.local` name is mDNS-only and
+cannot be aimed at the Pi from outside the LAN.
+
+### Do not clone the SD card
+
+Set each Pi up from a fresh Raspberry Pi OS image. The control token is minted on
+first run and kept in `/etc/hall-clock/config.json`, so imaging Hall B's card
+from Hall A's *installed* card carries Hall A's token along with it. Two halls
+sharing one token is the one way they can genuinely cross-control: a phone paired
+to either hall is then accepted by both.
+
+If you do clone a card, clear the config before first boot and the app mints a
+fresh token:
+
+```sh
+sudo rm /etc/hall-clock/config.json && sudo systemctl restart hall-clock
+```
+
+The installer prints a warning if it finds an existing token on a Pi it is
+renaming, which is what a cloned card looks like.
+
+Otherwise the halls are independent: separate schedules, separate tokens, and a
+token from one hall is rejected by the other with a 401. Even a name collision
+fails safe — a phone that resolves to the wrong Pi is rejected, so the controller
+stops working rather than driving the wrong clock.
+
+### Existing Pis
+
+Merging this changes nothing on a Pi that is already installed. The update swaps
+the binary and reinstalls the units and the Caddyfile, all of which now behave
+exactly as before for a hall named `hallclock`: the unit's default `HALL_HOST` is
+`hallclock`, and the `*.local` site still matches `hallclock.local`. The hostname
+is not touched by an update (only `install.sh` sets it), and `config.json` — token,
+schedule, paired phones — is left alone.
+
+Note this is protection against *mistakes*, not an access boundary. `/api/pairing`
+and `/qr.png` are deliberately unauthenticated so the printed `/pair` QR always
+works, which means anyone on the LAN can read a hall's token and drive that
+clock. Security here is the trusted LAN — same assumption as the rest of the
+appliance (see "Why not HTTPS?").
 
 ## Updates
 
