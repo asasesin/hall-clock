@@ -86,28 +86,11 @@ func (s *server) handleEndMeeting(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, state)
 }
 
-// handleReset restarts the current part's countdown from its full time without
-// stopping it: a running part keeps running from the top, a paused one stays
-// paused at the top. It does not change which part is selected. For a part that
-// was over, this gives its time back, so the meeting's overtime total drops by
-// that live amount.
+// handleReset is kept on the legacy /api/control/reset route, but the control
+// now means "stop this timer": retire the current item, stage the next schedule
+// item, and leave the timer idle for the operator to start when ready.
 func (s *server) handleReset(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	s.remainingAt = s.state.DurationSeconds
-	s.state.RemainingSeconds = s.state.DurationSeconds
-	s.state.ElapsedSeconds = 0
-	s.state.OvertimeSeconds = 0
-	// Restart the clock from now so a running part counts down from full; leaving
-	// startedAt untouched would make recalculate immediately subtract the elapsed
-	// time again.
-	if s.state.Status == StatusRunning {
-		s.startedAt = s.clock()
-	}
-	state := s.snapshotLocked()
-	s.mu.Unlock()
-
-	s.broadcast(state)
-	writeJSON(w, state)
+	s.changeTalk(w, 1)
 }
 
 func (s *server) handleNext(w http.ResponseWriter, r *http.Request) {
@@ -393,7 +376,6 @@ func (s *server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	}
 	body.MeetingType = normalizeMeetingType(body.MeetingType)
 	body.MeetingStartTime = normalizeStartTime(body.MeetingStartTime)
-	body.MeetingStarts = normalizeMeetingStarts(body.MeetingStarts, body.MeetingStartTime)
 	advertisedURL, err := normalizeAdvertisedControlURL(body.AdvertisedBaseURL)
 	if err != nil {
 		http.Error(w, "invalid advertisedBaseUrl", http.StatusBadRequest)
@@ -412,6 +394,8 @@ func (s *server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	s.config.AdvertisedBaseURL = advertisedURL
 	s.config.MeetingType = body.MeetingType
 	s.config.MeetingStartTime = body.MeetingStartTime
+	body.MeetingStarts = normalizeMeetingStarts(body.MeetingStarts, body.MeetingStartTime)
+	applyDefaultMeetingStartLanguage(body.MeetingStarts, s.config.MidweekLanguage, s.config.MidweekURL)
 	s.config.MeetingStarts = preserveMeetingStartImportState(s.config.MeetingStarts, body.MeetingStarts)
 	s.config.PrestartSeconds = body.PrestartSeconds
 	s.config.MidweekURL = strings.TrimSpace(body.MidweekURL)
@@ -517,12 +501,35 @@ func preserveMeetingStartImportState(existing, incoming []MeetingStart) []Meetin
 	}
 	for i := range incoming {
 		previous, ok := byID[incoming[i].ID]
-		if !ok || incoming[i].MidweekImportedWeek != "" || incoming[i].MidweekURL != previous.MidweekURL {
+		if !ok || incoming[i].MidweekImportedWeek != "" {
+			continue
+		}
+		incomingLanguage := meetingStartLanguage(incoming[i])
+		previousLanguage := meetingStartLanguage(previous)
+		if incoming[i].MidweekURL == "" && incomingLanguage != "" && incomingLanguage == previousLanguage {
+			incoming[i].MidweekURL = previous.MidweekURL
+		}
+		if incoming[i].MidweekURL != previous.MidweekURL || incomingLanguage != previousLanguage {
 			continue
 		}
 		incoming[i].MidweekImportedWeek = previous.MidweekImportedWeek
 	}
 	return incoming
+}
+
+func applyDefaultMeetingStartLanguage(starts []MeetingStart, configLanguage, configURL string) {
+	fallback := normalizeMidweekLanguage(configLanguage)
+	if fallback == "" {
+		fallback = normalizeMidweekLanguage(wolLanguage(configURL))
+	}
+	if fallback == "" {
+		return
+	}
+	for i := range starts {
+		if meetingStartLanguage(starts[i]) == "" {
+			starts[i].Language = fallback
+		}
+	}
 }
 
 func (s *server) handleImportMidweek(w http.ResponseWriter, r *http.Request) {

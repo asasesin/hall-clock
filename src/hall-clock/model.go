@@ -62,6 +62,7 @@ type MeetingStart struct {
 	Day                 int    `json:"day"`
 	Time                string `json:"time"`
 	Congregation        string `json:"congregation"`
+	Language            string `json:"language,omitempty"`
 	MidweekURL          string `json:"midweekUrl,omitempty"`
 	MidweekImportedWeek string `json:"midweekImportedWeek,omitempty"`
 }

@@ -112,6 +112,33 @@ func (s *server) midweekLanguageSourceLocked(language string) (string, bool) {
 	return "", false
 }
 
+func meetingStartLanguage(start MeetingStart) string {
+	if language := normalizeMidweekLanguage(start.Language); language != "" {
+		return language
+	}
+	return normalizeMidweekLanguage(wolLanguage(start.MidweekURL))
+}
+
+func meetingStartSource(start MeetingStart, fallbackURL string) autoImportSource {
+	source := autoImportSource{
+		exampleURL:   strings.TrimSpace(start.MidweekURL),
+		importedWeek: start.MidweekImportedWeek,
+		startID:      start.ID,
+	}
+	if source.exampleURL != "" {
+		return source
+	}
+	language := meetingStartLanguage(start)
+	if language != "" {
+		source.exampleURL = defaultMidweekLanguageSources[language]
+	}
+	if source.exampleURL == "" {
+		source.exampleURL = fallbackURL
+		source.startID = 0
+	}
+	return source
+}
+
 // findWorkbookDocURL extracts the midweek workbook document link from a weekly
 // meetings page. Workbook docids are 9 digits, which distinguishes them from
 // the Watchtower study article also linked on that page.
@@ -387,15 +414,9 @@ func (s *server) nextAutoImportSourceLocked(now time.Time) (autoImportSource, bo
 		return autoImportSource{exampleURL: s.config.MidweekURL, importedWeek: s.config.MidweekImportedWeek}, true
 	}
 
-	source := autoImportSource{
-		exampleURL:   start.MidweekURL,
-		importedWeek: start.MidweekImportedWeek,
-		startID:      start.ID,
-	}
-	if source.exampleURL == "" {
-		source.exampleURL = s.config.MidweekURL
+	source := meetingStartSource(start, s.config.MidweekURL)
+	if source.startID == 0 {
 		source.importedWeek = s.config.MidweekImportedWeek
-		source.startID = 0
 	}
 	if source.importedWeek == isoWeekString(now) {
 		return source, false

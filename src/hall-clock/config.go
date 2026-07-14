@@ -150,6 +150,11 @@ func normalizeMeetingStarts(starts []MeetingStart, fallbackStartTime string) []M
 		start.Time = normalizeStartTime(start.Time)
 		start.Congregation = strings.TrimSpace(start.Congregation)
 		start.MidweekURL = strings.TrimSpace(start.MidweekURL)
+		if language := normalizeMidweekLanguage(start.Language); language != "" {
+			start.Language = language
+		} else {
+			start.Language = normalizeMidweekLanguage(wolLanguage(start.MidweekURL))
+		}
 		normalized = append(normalized, start)
 	}
 	if len(normalized) == 0 {

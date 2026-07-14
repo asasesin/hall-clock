@@ -5,38 +5,39 @@ import (
 	"time"
 )
 
-// Restart time refills the current part's clock but keeps it running, and it
-// keeps counting from the top.
-func TestRestartTimeKeepsRunning(t *testing.T) {
+// The legacy reset route backs the Stop timer control: it retires the current
+// live item, moves to the next schedule item, and leaves that item staged idle.
+func TestStopTimerAdvancesAndStagesIdle(t *testing.T) {
 	h := newOverrideHarness(t)
-	full := h.state().DurationSeconds
+	schedule := h.state().Schedule
+	if len(schedule) < 2 {
+		t.Fatal("need at least two parts")
+	}
 
 	h.post("/api/control/start", "")
 	h.advance(30 * time.Second)
-	if before := h.state(); before.Status != StatusRunning || before.RemainingSeconds != full-30 {
-		t.Fatalf("setup: status=%s remaining=%d", before.Status, before.RemainingSeconds)
-	}
 
 	h.post("/api/control/reset", "")
-	just := h.state()
-	if just.Status != StatusRunning {
-		t.Fatalf("restart must not stop the clock, got %s", just.Status)
+	st := h.state()
+	if st.Status != StatusIdle {
+		t.Fatalf("stop timer must stage the next item idle, got %s", st.Status)
 	}
-	if just.RemainingSeconds != full {
-		t.Fatalf("restart must refill the clock to %ds, got %ds", full, just.RemainingSeconds)
+	if st.CurrentTalkID != schedule[1].ID {
+		t.Fatalf("expected next item %d, got %d", schedule[1].ID, st.CurrentTalkID)
 	}
-
-	// It resumes counting down from full, not from where it was.
-	h.advance(10 * time.Second)
-	if got := h.state().RemainingSeconds; got != full-10 {
-		t.Fatalf("clock did not resume from the top, got %ds want %ds", got, full-10)
+	if st.RemainingSeconds != schedule[1].Duration || st.ElapsedSeconds != 0 {
+		t.Fatalf("next item not staged fresh: remaining=%d elapsed=%d", st.RemainingSeconds, st.ElapsedSeconds)
 	}
 }
 
-// Restarting a paused part refills it but leaves it paused.
-func TestRestartTimeWhilePausedStaysPaused(t *testing.T) {
+// Stopping a paused item is still leaving that item, so it stages the next item
+// instead of refilling the current one.
+func TestStopTimerWhilePausedAdvances(t *testing.T) {
 	h := newOverrideHarness(t)
-	full := h.state().DurationSeconds
+	schedule := h.state().Schedule
+	if len(schedule) < 2 {
+		t.Fatal("need at least two parts")
+	}
 
 	h.post("/api/control/start", "")
 	h.advance(20 * time.Second)
@@ -44,22 +45,13 @@ func TestRestartTimeWhilePausedStaysPaused(t *testing.T) {
 
 	h.post("/api/control/reset", "")
 	st := h.state()
-	if st.Status != StatusPaused {
-		t.Fatalf("restart while paused must stay paused, got %s", st.Status)
-	}
-	if st.RemainingSeconds != full {
-		t.Fatalf("restart must refill to %ds, got %ds", full, st.RemainingSeconds)
-	}
-	// Paused: the clock does not move.
-	h.advance(15 * time.Second)
-	if got := h.state().RemainingSeconds; got != full {
-		t.Fatalf("paused clock moved after restart, got %ds", got)
+	if st.Status != StatusIdle || st.CurrentTalkID != schedule[1].ID {
+		t.Fatalf("expected paused stop to stage next item idle, got status=%s talk=%d", st.Status, st.CurrentTalkID)
 	}
 }
 
-// Restarting a part that had run over gives its time back, so the meeting total
-// drops by that live amount and the part is no longer over.
-func TestRestartTimeGivesBackOvertime(t *testing.T) {
+// Stopping a part that ran over banks its overtime, just like Next part.
+func TestStopTimerBanksOvertime(t *testing.T) {
 	h := newOverrideHarness(t)
 
 	h.runPartOver(40 * time.Second)
@@ -69,10 +61,10 @@ func TestRestartTimeGivesBackOvertime(t *testing.T) {
 
 	h.post("/api/control/reset", "")
 	st := h.state()
-	if st.MeetingOvertimeSeconds != 0 {
-		t.Fatalf("restart should give the overtime back, got %ds", st.MeetingOvertimeSeconds)
+	if st.MeetingOvertimeSeconds != 40 {
+		t.Fatalf("stop timer should bank overtime, got %ds", st.MeetingOvertimeSeconds)
 	}
-	if st.OvertimeSeconds != 0 || st.Status != StatusRunning {
-		t.Fatalf("expected a running part no longer over, got status=%s overtime=%d", st.Status, st.OvertimeSeconds)
+	if st.OvertimeSeconds != 0 || st.Status != StatusIdle {
+		t.Fatalf("expected next item staged idle without live overtime, got status=%s overtime=%d", st.Status, st.OvertimeSeconds)
 	}
 }
