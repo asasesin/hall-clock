@@ -60,8 +60,18 @@ if ! flock -n 9; then
 fi
 
 # Operators can pin a fork or a different repo without editing this script.
-# shellcheck source=/dev/null
-[ -f "$ENV_FILE" ] && . "$ENV_FILE"
+# update.env feeds this root process (REPO alone decides whose binary root
+# installs), so refuse it unless root owns it and only root can write it — the
+# config directory is owned by the unprivileged app user, who must not be able
+# to smuggle settings into a root run by replacing the file.
+if [ -f "$ENV_FILE" ]; then
+  if [ -n "$(find "$ENV_FILE" -maxdepth 0 -uid 0 ! -perm /022 2>/dev/null)" ]; then
+    # shellcheck source=/dev/null
+    . "$ENV_FILE"
+  else
+    log "ignoring ${ENV_FILE}: it must be owned by root and writable only by root"
+  fi
+fi
 
 current="$("$BIN" -version 2>/dev/null || echo unknown)"
 latest=""
@@ -172,8 +182,10 @@ trap 'rm -rf "$staging"' EXIT
 cd "$staging"
 
 base="https://github.com/${REPO}/releases/download/${latest}"
-curl -fsSL --max-time 120 -o "$asset" "${base}/${asset}" || fail "download failed"
-curl -fsSL --max-time 120 -o "$DEPLOY_ASSET" "${base}/${DEPLOY_ASSET}" || fail "deploy bundle download failed"
+# Generous deadlines: hall Wi-Fi can be slow, and a link that needs ten minutes
+# for a ~15 MB binary should still complete rather than never updating at all.
+curl -fsSL --max-time 600 -o "$asset" "${base}/${asset}" || fail "download failed"
+curl -fsSL --max-time 600 -o "$DEPLOY_ASSET" "${base}/${DEPLOY_ASSET}" || fail "deploy bundle download failed"
 curl -fsSL --max-time 30 -o SHA256SUMS "${base}/SHA256SUMS" || fail "download failed"
 
 # Anything that can tamper with the download owns a box sitting in a public
@@ -189,10 +201,31 @@ mkdir deploy
 tar -xzf "$DEPLOY_ASSET" -C deploy
 
 chmod 0755 "$asset"
-chown pi:pi "$asset"
+chown root:root "$asset"
+
+# Keep copies of the units and Caddyfile about to be replaced: a rollback that
+# restores only the old binary under incompatible new units leaves the box just
+# as dead as the failed update did.
+prev_deploy="${staging}/previous-deploy"
+mkdir -p "$prev_deploy"
+for f in hall-clock.service hall-clock-kiosk.service hall-clock-update.service \
+  hall-clock-update-check.service hall-clock-update.timer hall-clock-update.path \
+  hall-clock-housekeeping.service hall-clock-housekeeping.timer; do
+  if [ -f "$UNIT_DIR/$f" ]; then
+    cp -p "$UNIT_DIR/$f" "$prev_deploy/$f"
+  fi
+done
+if [ -f "$CADDY_DIR/Caddyfile" ]; then
+  cp -p "$CADDY_DIR/Caddyfile" "$prev_deploy/Caddyfile"
+fi
 
 cp -p "$BIN" "$PREVIOUS"
+# Flush the staged binary before renaming it into place: on an SD card the
+# rename can land before the data does, and a power cut then leaves a valid
+# name pointing at zeroes — a box that can never start its own app again.
+sync "$asset"
 mv -f "$asset" "$BIN"
+sync -f "$BIN"
 
 install -m 0644 deploy/hall-clock.service "$UNIT_DIR/hall-clock.service"
 install -m 0644 deploy/hall-clock-kiosk.service "$UNIT_DIR/hall-clock-kiosk.service"
@@ -216,6 +249,23 @@ systemctl try-restart caddy.service >/dev/null 2>&1 || true
 rollback() {
   log "rolling back to ${current}"
   mv -f "$PREVIOUS" "$BIN"
+  sync -f "$BIN" || true
+  # Restore the units and Caddyfile that were live before this update: the old
+  # binary must come back up under the configuration it was proven with.
+  for f in "$prev_deploy"/*; do
+    if [ -f "$f" ]; then
+      case "$(basename "$f")" in
+        Caddyfile)
+          install -m 0644 "$f" "$CADDY_DIR/Caddyfile"
+          systemctl try-restart caddy.service >/dev/null 2>&1 || true
+          ;;
+        *)
+          install -m 0644 "$f" "$UNIT_DIR/$(basename "$f")"
+          ;;
+      esac
+    fi
+  done
+  systemctl daemon-reload || true
   # Never let a failing restart abort the script here: `set -e` would kill it
   # before fail() records why the update was rolled back, leaving the setup page
   # stuck on "Restarting..." forever.
