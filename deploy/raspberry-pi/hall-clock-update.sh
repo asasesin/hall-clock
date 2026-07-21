@@ -241,6 +241,15 @@ install -m 0755 deploy/hall-clock-housekeeping.sh "$APP_DIR/hall-clock-housekeep
 if [ -d "$CADDY_DIR" ]; then
   install -m 0644 deploy/Caddyfile "$CADDY_DIR/Caddyfile"
 fi
+
+# Heal boxes installed before the root-boundary fix, where install.sh chowned
+# this whole directory to pi. Everything here was just replaced from the
+# checksummed bundle, so taking root ownership now is safe. update.env is NOT
+# auto-chowned: root-blessing a file the app user could have rewritten would
+# defeat the guard at the top — an operator who pins a fork re-chowns it to
+# root deliberately after checking its contents.
+chown -R root:root "$APP_DIR"
+
 systemctl daemon-reload
 systemctl enable hall-clock-update.timer hall-clock-update.path hall-clock-housekeeping.timer >/dev/null
 systemctl restart hall-clock-update.timer hall-clock-update.path hall-clock-housekeeping.timer
