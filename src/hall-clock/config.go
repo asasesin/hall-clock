@@ -50,15 +50,26 @@ func loadConfig(path string) (Config, error) {
 // the unit for an update, or the Pi losing power) would leave an empty config
 // behind and the app would never boot again.
 func saveConfig(path string, config Config) error {
+	data, err := marshalConfig(config)
+	if err != nil {
+		return err
+	}
+	return writeConfigFile(path, data)
+}
+
+func marshalConfig(config Config) ([]byte, error) {
+	data, err := json.MarshalIndent(config, "", "  ")
+	if err != nil {
+		return nil, err
+	}
+	return append(data, '\n'), nil
+}
+
+func writeConfigFile(path string, data []byte) error {
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
 	}
-	data, err := json.MarshalIndent(config, "", "  ")
-	if err != nil {
-		return err
-	}
-	data = append(data, '\n')
 
 	tmp, err := os.CreateTemp(dir, ".config-*.json")
 	if err != nil {
@@ -84,6 +95,33 @@ func saveConfig(path string, config Config) error {
 		return err
 	}
 	return os.Rename(tmp.Name(), path)
+}
+
+// persistConfig snapshots the current config under s.mu and writes it to disk.
+// Writers are serialized and sequenced so a slower, older snapshot can never
+// rename over a newer one — the marshal happens under s.mu, so the snapshot
+// can't observe a half-applied mutation either.
+func (s *server) persistConfig() error {
+	s.mu.Lock()
+	s.saveSeq++
+	seq := s.saveSeq
+	data, err := marshalConfig(s.config)
+	s.mu.Unlock()
+	if err != nil {
+		return err
+	}
+
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+	if seq <= s.lastSavedSeq {
+		// A newer snapshot already reached disk while we waited.
+		return nil
+	}
+	if err := writeConfigFile(s.configPath, data); err != nil {
+		return err
+	}
+	s.lastSavedSeq = seq
+	return nil
 }
 
 func defaultConfigPath() string {

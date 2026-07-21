@@ -13,8 +13,13 @@ rm -rf \
   "$HOME_DIR/.config/hall-clock-kiosk/chromium/component_crx_cache" \
   "$HOME_DIR/.config/hall-clock-kiosk/chromium/extensions_crx_cache" \
   "$HOME_DIR/.config/hall-clock-kiosk/chromium/OnDeviceHeadSuggestModel" \
-  "$HOME_DIR/.config/hall-clock-kiosk/chromium/WasmTtsEngine" \
-  /opt/hall-clock/.update.*
+  "$HOME_DIR/.config/hall-clock-kiosk/chromium/WasmTtsEngine"
+
+# Leftover updater staging directories — but only stale ones. This timer and
+# the updater share no lock, and a Persistent= catch-up run right after a
+# morning power-on must not delete the staging area of an update someone just
+# started from the setup page.
+find /opt/hall-clock -maxdepth 1 -name '.update.*' -mmin +120 -exec rm -rf {} + 2>/dev/null || true
 
 log "vacuuming journal to 100M"
 journalctl --vacuum-size=100M >/dev/null

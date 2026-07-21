@@ -40,6 +40,11 @@ func (s *server) handleConfig(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleStart(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
+	// Reconcile before locking the program in: with no SSE subscriber ticking,
+	// a pending idle-time swap (meeting-type flip, language sync, expired
+	// override) would otherwise be skipped and the stale program would run the
+	// whole meeting.
+	s.recalculateLocked(s.clock())
 	if s.state.Status != StatusRunning {
 		s.startedAt = s.clock()
 		s.state.Status = StatusRunning
@@ -310,11 +315,10 @@ func (s *server) handleCircuitOverseer(w http.ResponseWriter, r *http.Request) {
 	s.state.CircuitOverseer = circuitOverseerActive(s.config.CircuitOverseerExpiresAt, now)
 	// Rebuild the active schedule for the new mode (swaps CO parts in/out).
 	s.applyActiveScheduleChangeLocked(now)
-	config := s.config
 	state := s.snapshotLocked()
 	s.mu.Unlock()
 
-	if err := saveConfig(s.configPath, config); err != nil {
+	if err := s.persistConfig(); err != nil {
 		http.Error(w, "could not save config", http.StatusInternalServerError)
 		return
 	}
@@ -339,17 +343,17 @@ func (s *server) handleMidweekLanguage(w http.ResponseWriter, r *http.Request) {
 
 	now := s.clock()
 	s.mu.Lock()
-	config, state, ok, message := s.applyCachedMidweekLanguageScheduleLocked(now, language)
+	_, state, ok, message := s.applyCachedMidweekLanguageScheduleLocked(now, language)
 	s.mu.Unlock()
 	if !ok && strings.Contains(message, "not imported for this week yet") {
-		config, state, ok, message = s.importMidweekLanguage(r.Context(), now, language)
+		_, state, ok, message = s.importMidweekLanguage(r.Context(), now, language)
 	}
 	if !ok {
 		http.Error(w, message, http.StatusConflict)
 		return
 	}
 
-	if err := saveConfig(s.configPath, config); err != nil {
+	if err := s.persistConfig(); err != nil {
 		http.Error(w, "could not save language schedule", http.StatusInternalServerError)
 		return
 	}
@@ -360,7 +364,9 @@ func (s *server) handleMidweekLanguage(w http.ResponseWriter, r *http.Request) {
 
 func (s *server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	var body Config
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+	// The token is printed on a QR in a public hall, so "authenticated" means
+	// "anyone present": never parse an unbounded body on a 512 MB Pi.
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
 		return
 	}
@@ -430,8 +436,11 @@ func (s *server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 		s.config.ScheduleOverride = body.Schedule
 		s.config.ScheduleOverrideExpiresAt = saveNow.Add(scheduleOverrideDuration)
 	}
-	if len(body.MidweekLanguageSchedules) > 0 {
-		s.config.MidweekLanguageSchedules = copyMidweekLanguageScheduleMap(body.MidweekLanguageSchedules)
+	// Client-posted caches are untrusted: keep only known languages with sane
+	// schedules, and fall back to the server's own caches rather than letting a
+	// stale setup tab clobber what this week's import just wrote.
+	if sanitized := sanitizeMidweekLanguageSchedules(body.MidweekLanguageSchedules); sanitized != nil {
+		s.config.MidweekLanguageSchedules = sanitized
 	} else {
 		s.config.MidweekLanguageSchedules = existingLanguageSchedules
 	}
@@ -441,11 +450,10 @@ func (s *server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	s.state.PrestartLabel = ""
 	s.state.PrestartSeconds = body.PrestartSeconds
 	s.applyActiveScheduleChangeLocked(s.clock())
-	config := s.config
 	state := s.snapshotLocked()
 	s.mu.Unlock()
 
-	if err := saveConfig(s.configPath, config); err != nil {
+	if err := s.persistConfig(); err != nil {
 		http.Error(w, "could not save config", http.StatusInternalServerError)
 		return
 	}
@@ -467,6 +475,32 @@ func (s *server) handleSaveConfig(w http.ResponseWriter, r *http.Request) {
 	if due {
 		go s.autoImportTick(context.Background(), now)
 	}
+}
+
+// sanitizeMidweekLanguageSchedules filters client-posted language caches down
+// to known languages with plausible schedules, normalized the same way the
+// server's own import path normalizes them. Returns nil when nothing survives,
+// so the caller keeps the server's caches instead.
+func sanitizeMidweekLanguageSchedules(in map[string]MidweekLanguageSchedule) map[string]MidweekLanguageSchedule {
+	out := map[string]MidweekLanguageSchedule{}
+	for key, entry := range in {
+		language := normalizeMidweekLanguage(key)
+		if language == "" || entry.ImportedWeek == "" || len(entry.Schedule) == 0 || len(entry.Schedule) > 100 {
+			continue
+		}
+		schedule := make([]Talk, len(entry.Schedule))
+		copy(schedule, entry.Schedule)
+		normalizeSchedule(schedule)
+		out[language] = MidweekLanguageSchedule{
+			ImportedWeek: strings.TrimSpace(entry.ImportedWeek),
+			URL:          strings.TrimSpace(entry.URL),
+			Schedule:     schedule,
+		}
+	}
+	if len(out) == 0 {
+		return nil
+	}
+	return out
 }
 
 func copyStringMap(in map[string]string) map[string]string {
@@ -582,7 +616,7 @@ func (s *server) handleImportMidweek(w http.ResponseWriter, r *http.Request) {
 	state := s.snapshotLocked()
 	s.mu.Unlock()
 
-	if err := saveConfig(s.configPath, config); err != nil {
+	if err := s.persistConfig(); err != nil {
 		http.Error(w, "could not save imported schedule", http.StatusInternalServerError)
 		return
 	}
@@ -618,6 +652,10 @@ func (s *server) handleImportMidweekText(w http.ResponseWriter, r *http.Request)
 	s.mu.Lock()
 	s.config.MeetingType = "midweek"
 	s.config.MidweekLanguage = ""
+	// The active baseline no longer comes from a URL; a leftover MidweekURL
+	// stamped with this week would make the docid staleness guard compare
+	// language caches against a document that is not what is actually applied.
+	s.config.MidweekURL = ""
 	s.config.MidweekImportedWeek = isoWeekString(s.clock())
 	s.setBaselineScheduleLocked(schedule)
 	s.applyActiveScheduleChangeLocked(s.clock())
@@ -625,7 +663,7 @@ func (s *server) handleImportMidweekText(w http.ResponseWriter, r *http.Request)
 	state := s.snapshotLocked()
 	s.mu.Unlock()
 
-	if err := saveConfig(s.configPath, config); err != nil {
+	if err := s.persistConfig(); err != nil {
 		http.Error(w, "could not save imported schedule", http.StatusInternalServerError)
 		return
 	}
@@ -676,7 +714,7 @@ func (s *server) applyTemplate(w http.ResponseWriter, meetingType string, schedu
 	state := s.snapshotLocked()
 	s.mu.Unlock()
 
-	if err := saveConfig(s.configPath, config); err != nil {
+	if err := s.persistConfig(); err != nil {
 		http.Error(w, "could not save template", http.StatusInternalServerError)
 		return
 	}

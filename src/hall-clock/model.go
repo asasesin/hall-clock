@@ -37,6 +37,12 @@ type Config struct {
 	MidweekLanguageSchedules map[string]MidweekLanguageSchedule `json:"midweekLanguageSchedules,omitempty"`
 	AutoImportMidweek        bool                               `json:"autoImportMidweek"`
 	MidweekImportedWeek      string                             `json:"midweekImportedWeek,omitempty"`
+	// MidweekLanguageOverrideUntil marks an operator's manual language switch.
+	// While now is before this time, the automatic writers — the idle
+	// meeting-start language sync and the weekly import rotation — leave the
+	// active language alone, so a person's explicit choice is never silently
+	// reverted mid-session. Persisted so a reboot doesn't forget the choice.
+	MidweekLanguageOverrideUntil time.Time `json:"midweekLanguageOverrideUntil,omitempty"`
 	// CircuitOverseerExpiresAt is when the circuit-overseer-visit schedule stops
 	// applying. The mode is "active" only while now < this time, so it scopes to
 	// a single meeting session and auto-clears (see circuitOverseerDuration).

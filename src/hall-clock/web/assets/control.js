@@ -1,5 +1,7 @@
 (function () {
   const tokenWarning = document.getElementById("tokenWarning");
+  const offlineNotice = document.getElementById("offlineNotice");
+  const commandNotice = document.getElementById("commandNotice");
   const meetingType = document.getElementById("meetingType");
   const timeValue = document.getElementById("timeValue");
   const partPickerBtn = document.getElementById("partPickerBtn");
@@ -16,6 +18,7 @@
   const resetBtn = document.getElementById("resetBtn");
   const endBtn = document.getElementById("endBtn");
   const partPosition = document.getElementById("partPosition");
+  const nowPartTitle = document.getElementById("nowPartTitle");
   const meetingOvertime = document.getElementById("meetingOvertime");
   const nextPart = document.getElementById("nextPart");
   const statusBadge = document.getElementById("statusBadge");
@@ -32,8 +35,18 @@
   let latestStatus = "idle";
   let latestState = null;
   let timerCommandPending = false;
+  let advancePending = false;
   let languageCommandPending = false;
   let lastAppliedLanguage = "en";
+  let commandNoticeTimeout = null;
+
+  // Most commands fail silently into the console; the operator deserves at
+  // least a transient on-screen cue that a tap went nowhere.
+  function flashCommandNotice() {
+    commandNotice.classList.remove("hidden");
+    clearTimeout(commandNoticeTimeout);
+    commandNoticeTimeout = setTimeout(() => commandNotice.classList.add("hidden"), 4000);
+  }
 
   function render(state) {
     latestState = state;
@@ -48,20 +61,20 @@
     const timing = state.status === "running" || state.status === "paused";
     timeValue.classList.toggle("warning", timing && !prestart && state.remainingSeconds <= state.closingSeconds && state.remainingSeconds >= 0);
     timeValue.classList.toggle("overtime", timing && !prestart && state.remainingSeconds < 0);
-    startBtn.disabled = timerCommandPending;
+    startBtn.disabled = timerCommandPending || advancePending;
     startBtn.dataset.status = state.status;
     if (!timerCommandPending) {
       startBtn.textContent = state.status === "running" ? "Pause" : state.status === "paused" ? "Resume" : "Start";
     }
-    // Stop timer and End meeting only act on a live clock, so they are hidden
-    // outright while idle rather than shown greyed -- the panel reads as fully
-    // available at rest instead of half-disabled.
+    // Stop timer and End meeting only act on a live clock, so while idle they
+    // go invisible rather than greyed -- but keep their slots, so tapping Start
+    // never shifts the other buttons under the operator's thumb.
     const idle = state.status === "idle";
-    resetBtn.classList.toggle("hidden", idle);
+    resetBtn.classList.toggle("slot-hidden", idle);
     if (idle && resetBtn.classList.contains("armed")) {
       disarmReset();
     }
-    endBtn.classList.toggle("hidden", idle);
+    endBtn.classList.toggle("slot-hidden", idle);
     if (idle && endBtn.classList.contains("armed")) {
       disarmEnd();
     }
@@ -97,6 +110,10 @@
     if (state.circuitOverseer && state.circuitOverseerExpiresAt) {
       coHint.textContent = `On — turns off automatically around ${WallClock.formatClock(state.circuitOverseerExpiresAt)}`;
       coHint.classList.remove("hidden");
+    } else if (coToggle.disabled) {
+      // The title-attribute explanation never shows on a phone; say it on-screen.
+      coHint.textContent = "Available while the timer is idle.";
+      coHint.classList.remove("hidden");
     } else {
       coHint.textContent = "";
       coHint.classList.add("hidden");
@@ -105,6 +122,13 @@
     const schedule = state.schedule || [];
     const index = schedule.findIndex((talk) => talk.id === state.currentTalkId);
     partPosition.textContent = prestart ? (state.prestartLabel || "Meeting starts soon") : index >= 0 ? `Item ${index + 1} of ${schedule.length}` : "Schedule";
+    // The clock's time belongs to this title; naming it here saves the operator
+    // a glance down at the picker card to learn what is being timed.
+    const nowTitle = index >= 0 ? schedule[index].title : "";
+    nowPartTitle.textContent = nowTitle;
+    // During the pre-meeting countdown the big number is not timing this item,
+    // so the title under it would mislabel the countdown.
+    nowPartTitle.classList.toggle("hidden", nowTitle === "" || prestart);
     const next = index >= 0 ? schedule[index + 1] : undefined;
     nextPart.textContent = next ? `Next: ${next.title}` : "Last item of the meeting";
 
@@ -120,13 +144,20 @@
     // Leave an armed label alone: overwriting it mid-confirmation would drop the
     // operator's first tap on the next state broadcast.
     const atEnd = !next;
-    nextBtn.disabled = timerCommandPending || atEnd;
-    resetBtn.disabled = timerCommandPending || atEnd;
+    const busy = timerCommandPending || advancePending;
+    nextBtn.disabled = busy || atEnd;
+    resetBtn.disabled = busy || atEnd;
+    endBtn.disabled = busy;
     if (resetBtn.disabled && resetBtn.classList.contains("armed")) {
       disarmReset();
     }
     if (!nextBtn.classList.contains("armed")) {
       nextBtn.textContent = atEnd ? "Meeting complete" : "Next part";
+    }
+    // Stop is the same server action as Next, so it has nothing left to do at
+    // the last item; point the operator at the button that does work there.
+    if (!resetBtn.classList.contains("armed")) {
+      resetBtn.textContent = atEnd ? "Use End meeting" : "Stop timer";
     }
     if (nextBtn.disabled && nextBtn.classList.contains("armed")) {
       disarmNext();
@@ -157,9 +188,34 @@
       // chasing a problem that does not exist.
       if (error.status === 401 || error.status === 403) {
         tokenWarning.classList.remove("hidden");
+      } else {
+        flashCommandNotice();
       }
       console.error(error);
       return null;
+    }
+  }
+
+  // Next/Stop/End retire schedule items and are not idempotent on the server
+  // (both /next and /reset advance the schedule), so a double-tap or a tap
+  // queued behind a hung request must never send twice.
+  async function advanceCommand(path) {
+    if (advancePending) return;
+    advancePending = true;
+    if (latestState) render(latestState);
+    try {
+      const state = await WallClock.postJSON(path, undefined, { timeoutMs: TIMER_COMMAND_TIMEOUT_MS });
+      render(state);
+    } catch (error) {
+      if (error.status === 401 || error.status === 403) {
+        tokenWarning.classList.remove("hidden");
+      } else {
+        flashCommandNotice();
+      }
+      console.error(error);
+    } finally {
+      advancePending = false;
+      if (latestState) render(latestState);
     }
   }
 
@@ -351,7 +407,7 @@
   }
 
   startBtn.addEventListener("click", async () => {
-    if (timerCommandPending) return;
+    if (timerCommandPending || advancePending) return;
     timerCommandPending = true;
     const status = latestStatus;
     startBtn.disabled = true;
@@ -423,7 +479,7 @@
       return;
     }
     disarmReset();
-    command("/api/control/reset");
+    advanceCommand("/api/control/reset");
   });
   // Ending a meeting stops the clock, so it always takes two taps -- there is no
   // idle shortcut, since ending while idle is a no-op the button is disabled for.
@@ -435,7 +491,7 @@
       return;
     }
     disarmEnd();
-    command("/api/control/end");
+    advanceCommand("/api/control/end");
   });
   // Advancing discards a live timer's elapsed time with no way back, so while a
   // part is running or paused it takes two taps. Idle is the ordinary case
@@ -443,7 +499,7 @@
   nextBtn.addEventListener("click", () => {
     if (latestStatus === "idle") {
       disarmNext();
-      command("/api/control/next");
+      advanceCommand("/api/control/next");
       return;
     }
     if (!nextBtn.classList.contains("armed")) {
@@ -454,7 +510,7 @@
       return;
     }
     disarmNext();
-    command("/api/control/next");
+    advanceCommand("/api/control/next");
   });
   document.getElementById("bellBtn").addEventListener("click", () => command("/api/control/bell"));
   coToggle.addEventListener("click", () => {
@@ -472,19 +528,10 @@
         languageStatus.textContent = `Switching to ${languageName(language)} items...`;
       }
       try {
-        const response = await fetch("/api/control/midweek-language", {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            "X-Wall-Clock-Token": WallClock.getToken(),
-          },
-          body: JSON.stringify({ language }),
-        });
-        if (!response.ok) {
-          const message = await response.text();
-          throw Object.assign(new Error(message), { status: response.status });
-        }
-        const state = await response.json();
+        // postJSON's 30s deadline matters here: a switch does two WOL fetches
+        // server-side, and a request that never settles would leave
+        // languageCommandPending set and the select disabled until reload.
+        const state = await WallClock.postJSON("/api/control/midweek-language", { language });
         render(state);
         if (languageStatus) {
           languageStatus.classList.remove("error");
@@ -536,7 +583,15 @@
     if (!token) {
       tokenWarning.classList.remove("hidden");
     }
-    WallClock.subscribe(render);
+    WallClock.subscribe(render, (online) => {
+      // A (re)connect delivers a full snapshot whose bell count is the new
+      // baseline, not a ring: a server restart resets the counter to zero and a
+      // reconnect may have skipped rings, and neither should sound the bell now.
+      if (online) {
+        lastBell = -1;
+      }
+      offlineNotice.classList.toggle("hidden", online);
+    });
   }
   init();
 })();

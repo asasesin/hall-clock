@@ -123,7 +123,18 @@ install -m 0755 hall-clock-kiosk.sh "$APP_DIR/hall-clock-kiosk.sh"
 install -m 0755 hall-clock-update.sh "$APP_DIR/hall-clock-update.sh"
 install -m 0755 hall-clock-housekeeping.sh "$APP_DIR/hall-clock-housekeeping.sh"
 install -m 0644 Caddyfile "$CADDY_DIR/Caddyfile"
-chown -R pi:pi "$APP_DIR" "$CONFIG_DIR"
+# Root owns the app directory: hall-clock-update.service executes
+# hall-clock-update.sh from here as root, so nothing the unprivileged app user
+# can write may live on that path. The app only needs to read/exec the binary.
+chown -R root:root "$APP_DIR"
+# The app (running as pi) writes config.json here, so pi owns the directory —
+# but update.env feeds the root updater, so it must stay root's alone; the
+# updater independently refuses a non-root-owned env file.
+chown -R pi:pi "$CONFIG_DIR"
+if [ -f "$CONFIG_DIR/update.env" ]; then
+  chown root:root "$CONFIG_DIR/update.env"
+  chmod 0644 "$CONFIG_DIR/update.env"
+fi
 
 # The app listens on a Unix socket owned by pi:pi (mode 0660). Add the caddy
 # user to the pi group so the reverse proxy can connect to it. (Restarting

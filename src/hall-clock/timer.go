@@ -7,6 +7,13 @@ import (
 
 const meetingStartLanguageLead = 30 * time.Minute
 
+// adhocPartGrace keeps ad-hoc items added while setting up ahead of the
+// prestart window: an item created up to an hour before the session boundary
+// was prepared for this meeting, not left over from the previous one. Without
+// it, an item added six minutes early was silently purged at the first idle
+// moment after the meeting began.
+const adhocPartGrace = time.Hour
+
 // applyScheduleLocked swaps in a new schedule without killing an in-progress
 // timer: while running or paused, the current talk keeps counting and an
 // edited duration shifts the remaining time like a manual adjust would.
@@ -182,13 +189,11 @@ func (s *server) syncActiveScheduleLocked(now time.Time) {
 	if s.state.Status != StatusIdle {
 		return
 	}
-	activeMeetingType := meetingTypeForTime(now)
-	if s.state.MeetingType == activeMeetingType {
-		return
-	}
-	s.state.MeetingType = activeMeetingType
-	s.talks = withoutTemporaryTalks(s.talks)
-	s.applyScheduleLocked(scheduleForMeetingType(activeMeetingType, s.effectiveMidweekScheduleLocked(now), s.state.CircuitOverseer, s.config.MidweekLanguage))
+	// Full idle reconciliation, not just the meeting-type flip: a baseline that
+	// changed while a meeting was running (a deferred auto-import) lands here,
+	// at the first idle moment. sameBaseSchedule makes the common no-change
+	// tick a cheap comparison.
+	s.applyActiveScheduleChangeLocked(now)
 }
 
 // currentOvertimeLocked is how far the current part is past its time as of now.
@@ -309,6 +314,12 @@ func (s *server) syncMeetingStartLanguageLocked(now time.Time) {
 	if s.state.Status != StatusIdle {
 		return
 	}
+	// A person's explicit switch outranks the schedule-implied language for the
+	// rest of the session; without this the sync reverts the operator's choice
+	// on the very next recalculation.
+	if now.Before(s.config.MidweekLanguageOverrideUntil) {
+		return
+	}
 	start, _, ok := languageMeetingStartSlot(now, s.config.MeetingStarts)
 	if !ok {
 		return
@@ -321,6 +332,9 @@ func (s *server) syncMeetingStartLanguageLocked(now time.Time) {
 	if meetingTypeForTime(now) == "midweek" {
 		cached, ok := s.config.MidweekLanguageSchedules[language]
 		if !ok || cached.ImportedWeek != isoWeekString(now) || len(cached.Schedule) == 0 {
+			return
+		}
+		if s.cachedLanguageScheduleStaleLocked(cached) {
 			return
 		}
 		s.config.MidweekURL = cached.URL
@@ -470,7 +484,7 @@ func (s *server) recalculateLocked(now time.Time) {
 	if s.state.Status == StatusIdle {
 		if session, ok := s.meetingSessionLocked(now); ok {
 			s.syncOvertimeSessionLocked(session)
-			s.purgeStaleTemporaryPartsLocked(session)
+			s.purgeStaleTemporaryPartsLocked(session.Add(-adhocPartGrace))
 		}
 	}
 	s.state.Now = now

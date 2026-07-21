@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"os"
 	"strings"
+	"time"
 )
 
 //go:embed web
@@ -76,9 +77,18 @@ func main() {
 // only by processes with filesystem access to the socket (a co-located reverse
 // proxy whose user shares the socket's group), never over the network.
 func serve(addr string, handler http.Handler) error {
+	// ReadHeaderTimeout keeps a stalled client from holding a connection open
+	// before it even sends a request; IdleTimeout reaps dead keep-alives.
+	// WriteTimeout stays zero on purpose: /events streams for hours.
+	server := &http.Server{
+		Handler:           handler,
+		ReadHeaderTimeout: 10 * time.Second,
+		IdleTimeout:       2 * time.Minute,
+	}
 	path, isUnix := strings.CutPrefix(addr, "unix:")
 	if !isUnix {
-		return http.ListenAndServe(addr, handler)
+		server.Addr = addr
+		return server.ListenAndServe()
 	}
 	// Clear a stale socket left by an unclean shutdown, then listen.
 	if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -93,5 +103,5 @@ func serve(addr string, handler http.Handler) error {
 	if err := os.Chmod(path, 0o660); err != nil {
 		return err
 	}
-	return http.Serve(ln, handler)
+	return server.Serve(ln)
 }

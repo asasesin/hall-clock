@@ -77,6 +77,18 @@ func wolLanguage(sourceURL string) string {
 	return ""
 }
 
+var wolDocIDPattern = regexp.MustCompile(`(\d{9})/?$`)
+
+// wolDocID extracts the workbook document id from a WOL doc URL. Workbook
+// docids are shared across languages for a given week, which makes them usable
+// as a week identity check between imports.
+func wolDocID(sourceURL string) string {
+	if m := wolDocIDPattern.FindStringSubmatch(strings.TrimSpace(sourceURL)); m != nil {
+		return m[1]
+	}
+	return ""
+}
+
 func normalizeMidweekLanguage(language string) string {
 	switch strings.ToLower(strings.TrimSpace(language)) {
 	case "en", "english":
@@ -170,7 +182,13 @@ func (s *server) autoImportLoop() {
 			continue
 		}
 
-		time.Sleep(time.Until(nextCheck))
+		// Cap the sleep: nextCheck can be days away, and config changes (an
+		// operator enabling auto-import mid-week) must not wait for Monday.
+		sleep := time.Until(nextCheck)
+		if sleep > 15*time.Minute {
+			sleep = 15 * time.Minute
+		}
+		time.Sleep(sleep)
 	}
 }
 
@@ -209,14 +227,14 @@ func (s *server) autoImportTick(ctx context.Context, now time.Time) {
 	}
 
 	s.mu.Lock()
-	config, state, ok := s.applyAutoImportedScheduleLocked(now, source, docURL, schedule)
+	_, state, ok := s.applyAutoImportedScheduleLocked(now, source, docURL, schedule)
 	s.mu.Unlock()
 	if !ok {
 		log.Printf("auto-import: skipped applying stale import from %s", docURL)
 		return
 	}
 
-	if err := saveConfig(s.configPath, config); err != nil {
+	if err := s.persistConfig(); err != nil {
 		log.Printf("auto-import: could not save config: %v", err)
 	}
 	s.broadcast(state)
@@ -230,16 +248,14 @@ func (s *server) applyAutoImportedScheduleLocked(now time.Time, source autoImpor
 	}
 
 	currentWeek := isoWeekString(now)
-	s.config.MidweekURL = docURL
-	s.config.MidweekLanguage = wolLanguage(docURL)
-	s.config.MidweekImportedWeek = currentWeek
+	importLanguage := wolLanguage(docURL)
 	if s.config.MidweekLanguageSources == nil {
 		s.config.MidweekLanguageSources = map[string]string{}
 	}
-	if s.config.MidweekLanguage != "" {
-		s.config.MidweekLanguageSources[s.config.MidweekLanguage] = docURL
+	if importLanguage != "" {
+		s.config.MidweekLanguageSources[importLanguage] = docURL
 	}
-	s.storeMidweekLanguageScheduleLocked(s.config.MidweekLanguage, currentWeek, docURL, schedule)
+	s.storeMidweekLanguageScheduleLocked(importLanguage, currentWeek, docURL, schedule)
 	if source.startID != 0 {
 		for i := range s.config.MeetingStarts {
 			if s.config.MeetingStarts[i].ID == source.startID {
@@ -249,9 +265,25 @@ func (s *server) applyAutoImportedScheduleLocked(now time.Time, source autoImpor
 			}
 		}
 	}
+	// An operator's explicit language choice outranks the rotation: cache the
+	// import for its congregation (above) but leave the active language and
+	// baseline alone until the override lapses.
+	if now.Before(s.config.MidweekLanguageOverrideUntil) && importLanguage != "" && importLanguage != s.config.MidweekLanguage {
+		state := s.snapshotLocked()
+		return s.config, state, true
+	}
+	s.config.MidweekURL = docURL
+	s.config.MidweekLanguage = importLanguage
+	s.config.MidweekImportedWeek = currentWeek
 	s.setBaselineScheduleLocked(schedule)
-	s.applyActiveScheduleChangeLocked(now)
-	return s.config, s.snapshotLocked(), true
+	// Never swap the program under a meeting in progress — a late-running or
+	// unconfigured meeting is outside the suppression window. The new baseline
+	// lands at the first idle recalculation instead.
+	if s.state.Status == StatusIdle {
+		s.applyActiveScheduleChangeLocked(now)
+	}
+	state := s.snapshotLocked()
+	return s.config, state, true
 }
 
 func (s *server) storeMidweekLanguageScheduleLocked(language, importedWeek, sourceURL string, schedule []Talk) {
@@ -284,15 +316,38 @@ func (s *server) applyCachedMidweekLanguageScheduleLocked(now time.Time, languag
 	if !ok || cached.ImportedWeek != isoWeekString(now) || len(cached.Schedule) == 0 {
 		return Config{}, State{}, false, fmt.Sprintf("%s items are not imported for this week yet", languageName(language))
 	}
+	if s.cachedLanguageScheduleStaleLocked(cached) {
+		return Config{}, State{}, false, fmt.Sprintf("%s items are not imported for this week yet", languageName(language))
+	}
 	s.config.MeetingType = "midweek"
 	s.config.MidweekURL = cached.URL
 	s.config.MidweekLanguage = language
 	s.config.MidweekImportedWeek = cached.ImportedWeek
+	// The operator chose this language; hold that choice for the session so the
+	// idle sync and the import rotation can't silently flip it back.
+	s.config.MidweekLanguageOverrideUntil = now.Add(circuitOverseerDuration)
 	s.setBaselineScheduleLocked(append([]Talk(nil), cached.Schedule...))
 	normalizeSchedule(s.config.Schedule)
 	s.state.MidweekLanguage = language
 	s.applyActiveScheduleChangeLocked(now)
-	return s.config, s.snapshotLocked(), true, ""
+	// Snapshot before copying config: snapshotLocked recalculates, and the
+	// returned pair must agree about what was applied.
+	state := s.snapshotLocked()
+	return s.config, state, true, ""
+}
+
+// cachedLanguageScheduleStaleLocked reports whether a cached language schedule
+// was stamped with the wrong week. Workbook docids are language-independent per
+// week, so a cache whose docid disagrees with the active import of the same
+// week holds a stale document recorded as current; callers treat it as missing
+// so a fresh import replaces it instead of serving last week's items.
+func (s *server) cachedLanguageScheduleStaleLocked(cached MidweekLanguageSchedule) bool {
+	id := wolDocID(cached.URL)
+	if id == "" || s.config.MidweekImportedWeek != cached.ImportedWeek {
+		return false
+	}
+	activeID := wolDocID(s.config.MidweekURL)
+	return activeID != "" && activeID != id
 }
 
 // importMidweekLanguage fetches a language's parts from WOL and applies them.
@@ -312,7 +367,19 @@ func (s *server) importMidweekLanguage(ctx context.Context, now time.Time, langu
 		return Config{}, State{}, false, fmt.Sprintf("%s items are not available for this hall", languageName(language))
 	}
 
-	schedule, err := importMidweekFromURL(ctx, sourceURL)
+	// The stored source is a specific week's document, so fetching it directly
+	// would import whatever week it was saved in and stamp it as current. Only
+	// its language/library segments are trusted; the date-addressable weekly
+	// meetings page decides which document is actually this week's.
+	page, err := fetchWOLPageFunc(ctx, weeklyMeetingsURL(sourceURL, now))
+	if err != nil {
+		return Config{}, State{}, false, fmt.Sprintf("could not import %s items: %v", languageName(language), err)
+	}
+	docURL, ok := findWorkbookDocURL(page)
+	if !ok {
+		return Config{}, State{}, false, fmt.Sprintf("could not find this week's %s items on WOL", languageName(language))
+	}
+	schedule, err := importMidweekFromURL(ctx, docURL)
 	if err != nil {
 		return Config{}, State{}, false, fmt.Sprintf("could not import %s items: %v", languageName(language), err)
 	}
@@ -327,17 +394,23 @@ func (s *server) importMidweekLanguage(ctx context.Context, now time.Time, langu
 	}
 	importedWeek := isoWeekString(now)
 	s.config.MeetingType = "midweek"
-	s.config.MidweekURL = sourceURL
+	s.config.MidweekURL = docURL
 	s.config.MidweekLanguage = language
 	s.config.MidweekImportedWeek = importedWeek
+	// The operator chose this language; hold that choice for the session so the
+	// idle sync and the import rotation can't silently flip it back.
+	s.config.MidweekLanguageOverrideUntil = now.Add(circuitOverseerDuration)
 	if s.config.MidweekLanguageSources == nil {
 		s.config.MidweekLanguageSources = map[string]string{}
 	}
-	s.config.MidweekLanguageSources[language] = sourceURL
-	s.storeMidweekLanguageScheduleLocked(language, importedWeek, sourceURL, schedule)
+	s.config.MidweekLanguageSources[language] = docURL
+	s.storeMidweekLanguageScheduleLocked(language, importedWeek, docURL, schedule)
 	s.setBaselineScheduleLocked(append([]Talk(nil), schedule...))
 	s.applyActiveScheduleChangeLocked(now)
-	return s.config, s.snapshotLocked(), true, ""
+	// Snapshot before copying config: snapshotLocked recalculates, and the
+	// returned pair must agree about what was applied.
+	state := s.snapshotLocked()
+	return s.config, state, true, ""
 }
 
 func sameAutoImportSource(a, b autoImportSource) bool {

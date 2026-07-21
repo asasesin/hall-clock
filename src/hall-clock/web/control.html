@@ -8,8 +8,15 @@
   </head>
   <body class="control-page">
     <main class="phone-shell">
-      <section id="tokenWarning" class="notice hidden">
-        Pair this phone from <strong>/pair</strong> before controlling the timer.
+      <section id="tokenWarning" class="notice hidden" role="alert">
+        Could not set up control on this phone. Check the wifi, or pair it from the
+        <a href="/pair">pairing page</a>.
+      </section>
+      <section id="offlineNotice" class="notice hidden" role="status">
+        Connection to the clock lost &mdash; reconnecting&hellip;
+      </section>
+      <section id="commandNotice" class="notice hidden" role="status">
+        That didn&rsquo;t reach the clock. Check the connection and try again.
       </section>
 
       <section class="compact-timer">
@@ -21,6 +28,7 @@
           <span id="statusBadge" class="status-badge">Idle</span>
         </div>
         <div id="timeValue" class="control-time">00:00</div>
+        <p id="nowPartTitle" class="card-now hidden"></p>
         <p id="meetingOvertime" class="card-overrun hidden" role="status"></p>
         <p id="nextPart" class="card-next"></p>
         <div class="timer-adjust">
@@ -51,18 +59,18 @@
 
           <div class="secondary-action-row">
             <button id="bellBtn" class="action action-subtle" type="button">Bell</button>
-            <button id="resetBtn" class="action action-subtle" type="button">Stop timer</button>
+            <button id="resetBtn" class="action action-subtle slot-hidden" type="button">Stop timer</button>
           </div>
 
           <div class="advance-action-row">
-            <button id="endBtn" class="action action-end" type="button">End meeting</button>
+            <button id="endBtn" class="action action-end slot-hidden" type="button">End meeting</button>
           </div>
         </div>
       </section>
 
       <section id="partsPanel" class="tab-panel">
         <div class="part-picker-field">
-          <span class="control-field-label">Current item</span>
+          <span class="control-field-label">Jump to item</span>
           <div class="current-item-row">
             <button id="partPickerBtn" class="part-picker-button" type="button" aria-expanded="false" aria-controls="partPickerList">
               <span id="currentPartTitle">Select item</span>
@@ -98,7 +106,7 @@
               <option value="tw">Twi</option>
             </select>
           </label>
-          <p id="languageStatus" class="language-hint hidden"></p>
+          <p id="languageStatus" class="language-hint hidden" aria-live="polite"></p>
           <div class="co-row">
             <div class="co-row-text">
               <span class="co-row-label">Circuit overseer visit</span>
