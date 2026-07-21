@@ -286,9 +286,14 @@ func TestMidweekLanguageSwitchCanImportMissingLanguageOnDemand(t *testing.T) {
 		return time.Date(2026, 7, 9, 18, 0, 0, 0, time.UTC)
 	}
 	originalFetch := fetchWOLPageFunc
+	// The stored Twi source is the week-24 example document; the import must
+	// resolve the current week via the weekly meetings page rather than fetch
+	// the stale document directly, so only 202026999 may serve a schedule.
 	fetchWOLPageFunc = func(ctx context.Context, sourceURL string) (string, error) {
 		switch {
-		case strings.Contains(sourceURL, "/wol/d/r33/lp-tw/202026241"):
+		case strings.Contains(sourceURL, "/tw/wol/meetings/r33/lp-tw/2026/28"):
+			return `<a href="/tw/wol/d/r33/lp-tw/202026999">Workbook</a>`, nil
+		case strings.Contains(sourceURL, "/wol/d/r33/lp-tw/202026999"):
 			return `
 				<h2>July 13-19</h2>
 				<p>Ɔkasa (5 min.)</p>
@@ -326,6 +331,102 @@ func TestMidweekLanguageSwitchCanImportMissingLanguageOnDemand(t *testing.T) {
 	srv.mu.Unlock()
 	if !ok || cached.ImportedWeek != "2026-W28" || len(cached.Schedule) == 0 {
 		t.Fatalf("expected Twi cache to be stored after import, got %+v", cached)
+	}
+	if !strings.HasSuffix(cached.URL, "202026999") {
+		t.Fatalf("expected cache to record the weekly page's document, got %q", cached.URL)
+	}
+}
+
+func TestManualLanguageChoiceSurvivesMeetingStartWindow(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Tuesday 2026-07-21 11:20 UTC, inside the Twi start's forced-language
+	// window of [11:10, 14:40). Both languages are cached for the week.
+	now := time.Date(2026, 7, 21, 11, 20, 0, 0, time.UTC)
+	srv.clock = func() time.Time { return now }
+	srv.config.MeetingStarts = []MeetingStart{{ID: 1, Day: 2, Time: "11:40", Language: "tw"}}
+	srv.config.MidweekLanguage = "tw"
+	srv.config.MidweekImportedWeek = "2026-W30"
+	srv.config.MidweekURL = "https://wol.jw.org/tw/wol/d/r33/lp-tw/202026243"
+	srv.config.MidweekLanguageSchedules = map[string]MidweekLanguageSchedule{
+		"tw": {ImportedWeek: "2026-W30", URL: "https://wol.jw.org/tw/wol/d/r33/lp-tw/202026243", Schedule: []Talk{{ID: 1, Title: "Ɔkasa", Duration: 300}}},
+		"en": {ImportedWeek: "2026-W30", URL: "https://wol.jw.org/en/wol/d/r1/lp-e/202026243", Schedule: []Talk{{ID: 1, Title: "Opening Comments", Duration: 300}}},
+	}
+
+	srv.mu.Lock()
+	_, state, ok, message := srv.applyCachedMidweekLanguageScheduleLocked(now, "en")
+	srv.mu.Unlock()
+	if !ok {
+		t.Fatalf("switch to English failed: %s", message)
+	}
+	if state.MidweekLanguage != "en" {
+		t.Fatalf("switch reverted inside its own response, got %q", state.MidweekLanguage)
+	}
+	// The next broadcast tick recalculates; the sync must not flip it back.
+	state = srv.snapshot()
+	if state.MidweekLanguage != "en" {
+		t.Fatalf("idle sync reverted the operator's choice, got %q", state.MidweekLanguage)
+	}
+}
+
+func TestAdhocPartAddedBeforeMeetingSurvivesStart(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Meeting Tuesday 11:40 with a 5-minute prestart puts the session boundary
+	// at 11:35. The operator added the item at 11:33 — prepared for this
+	// meeting, not left over from the previous one.
+	created := time.Date(2026, 7, 21, 11, 33, 0, 0, time.UTC)
+	now := time.Date(2026, 7, 21, 11, 42, 0, 0, time.UTC)
+	srv.clock = func() time.Time { return now }
+	srv.config.MeetingStarts = []MeetingStart{{ID: 1, Day: 2, Time: "11:40"}}
+	srv.config.PrestartSeconds = 300
+	srv.mu.Lock()
+	srv.talks = append(srv.talks, Talk{ID: 99, Title: "Special announcement", Duration: 300, Temporary: true, CreatedAt: created})
+	srv.state.Schedule = srv.talks
+	srv.mu.Unlock()
+
+	state := srv.snapshot()
+	for _, talk := range state.Schedule {
+		if talk.ID == 99 {
+			return
+		}
+	}
+	t.Fatal("ad-hoc item created minutes before the meeting was purged at meeting start")
+}
+
+func TestMidweekLanguageCacheStampedWithWrongWeekDocIsRejected(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	// 2026-07-21 is ISO week 2026-W30. The active import holds this week's
+	// document (…243), but the Twi cache was stamped W30 while holding last
+	// week's document (…242) — the poisoned state left behind by imports that
+	// fetched a stored week-specific URL directly.
+	now := time.Date(2026, 7, 21, 12, 0, 0, 0, time.UTC)
+	srv.config.MidweekURL = "https://wol.jw.org/en/wol/d/r1/lp-e/202026243"
+	srv.config.MidweekImportedWeek = "2026-W30"
+	srv.config.MidweekLanguageSchedules = map[string]MidweekLanguageSchedule{
+		"tw": {
+			ImportedWeek: "2026-W30",
+			URL:          "https://wol.jw.org/tw/wol/d/r33/lp-tw/202026242",
+			Schedule:     []Talk{{ID: 1, Title: "Ɔkasa", Duration: 300}},
+		},
+	}
+
+	srv.mu.Lock()
+	_, _, ok, message := srv.applyCachedMidweekLanguageScheduleLocked(now, "tw")
+	srv.mu.Unlock()
+	if ok {
+		t.Fatal("expected wrong-week Twi cache to be rejected")
+	}
+	if !strings.Contains(message, "not imported for this week yet") {
+		t.Fatalf("expected re-import trigger message, got %q", message)
 	}
 }
 

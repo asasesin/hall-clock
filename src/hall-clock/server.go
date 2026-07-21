@@ -24,6 +24,12 @@ type server struct {
 	remainingAt int
 	bellSeq     int64
 	subscribers map[chan State]struct{}
+	// saveMu serializes config persistence, and saveSeq/lastSavedSeq stop an
+	// older snapshot from renaming over a newer one when two writers race —
+	// e.g. the hourly import tick against an operator's language switch.
+	saveMu       sync.Mutex
+	saveSeq      uint64
+	lastSavedSeq uint64
 	// retiredOverruns is one record per part the operator has finished and moved
 	// on from, in order. The meeting's total is their sum plus the live part.
 	// Keeping the parts rather than a running sum means a future undo can drop
