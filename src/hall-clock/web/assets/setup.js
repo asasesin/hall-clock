@@ -381,9 +381,18 @@
     }
   });
 
-  if (!WallClock.getToken()) {
-    tokenWarning.classList.remove("hidden");
-  }
-
-  load();
+  (async () => {
+    // Setup sits behind the same LAN-open pairing as control, so pair
+    // automatically on first load — a browser that never visited /control
+    // (or lost its per-origin token to a hostname change) would otherwise
+    // have every save and update fail with a token error.
+    const token = await WallClock.ensureToken();
+    if (!token) {
+      tokenWarning.classList.remove("hidden");
+    }
+    load().catch((error) => {
+      console.error(error);
+      saveStatus.textContent = "Could not load settings — check the connection and reload.";
+    });
+  })();
 })();
