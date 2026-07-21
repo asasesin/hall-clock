@@ -38,6 +38,11 @@
   }
 
   WallClock.subscribe(render, (online) => {
+    // A (re)connect snapshot's bell count is the new baseline, not a ring: a
+    // server restart resets the counter and a reconnect may have skipped rings.
+    if (online) {
+      lastBell = -1;
+    }
     connection.textContent = online ? "Online" : "Offline";
     connection.classList.toggle("online", online);
     connection.classList.toggle("offline", !online);

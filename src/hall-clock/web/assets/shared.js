@@ -25,8 +25,12 @@
     if (existing) {
       return existing;
     }
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), 10000);
     try {
-      const response = await fetch("/api/pairing");
+      // Without a deadline a stalled first load leaves the page frozen before
+      // it ever subscribes — the same hazard postJSON guards against.
+      const response = await fetch("/api/pairing", { signal: controller.signal });
       if (!response.ok) {
         return "";
       }
@@ -40,6 +44,8 @@
     } catch (error) {
       console.error(error);
       return "";
+    } finally {
+      clearTimeout(timer);
     }
   }
 

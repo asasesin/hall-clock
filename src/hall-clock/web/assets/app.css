@@ -371,7 +371,7 @@ textarea {
   padding: 5px 10px;
   background: rgba(255, 255, 255, 0.04);
   color: #b8c1cc;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 800;
   letter-spacing: 0.04em;
   text-align: center;
@@ -421,7 +421,10 @@ textarea {
   display: inline-flex;
   align-items: center;
   border: 0;
-  padding: 0;
+  /* The track is only 34x20; pad the hit area out to 44px and pull the visual
+     box back in so the switch stays tappable on a phone without moving. */
+  padding: 12px;
+  margin: -12px;
   background: transparent;
   cursor: pointer;
 }
@@ -473,7 +476,7 @@ textarea {
 .meeting-chip {
   margin: 4px 0 0;
   color: #b4bdc8;
-  font-size: 11px;
+  font-size: 12px;
   font-weight: 700;
   letter-spacing: 0.03em;
   text-align: left;
@@ -494,8 +497,19 @@ textarea {
   color: var(--amber);
 }
 
-.card-next {
+/* The item being timed, named right under its clock so "now" and "next" read
+   as one pair instead of the current title living down in the picker card. */
+.card-now {
   margin: 12px 0 0;
+  color: var(--text);
+  font-size: 15px;
+  font-weight: 700;
+  position: relative;
+  z-index: 1;
+}
+
+.card-next {
+  margin: 4px 0 0;
   color: #b4bdc8;
   font-size: 13px;
   position: relative;
@@ -631,7 +645,7 @@ textarea {
 
 .part-picker-button:hover {
   border-color: rgba(255, 255, 255, 0.28);
-  background-color: rgba(255, 255, 255, 0.04);
+  background-color: rgba(255, 255, 255, 0.08);
 }
 
 .part-picker-button::after {
@@ -644,10 +658,6 @@ textarea {
   background-repeat: no-repeat;
   background-position: center;
   background-size: 12px 8px;
-}
-
-.part-picker-button:hover {
-  border-color: rgba(255, 255, 255, 0.28);
 }
 
 .part-picker-button:focus-visible,
@@ -900,20 +910,22 @@ textarea {
   gap: 10px;
 }
 
-/* While idle, Stop timer is hidden and Bell is the only control left in this
-   row -- let it span the full width so no half-empty slot is left behind. */
-.secondary-action-row:has(> .action.hidden) {
-  grid-template-columns: 1fr;
+/* Stop timer and End meeting only act on a live clock. While idle, Stop keeps
+   its slot beside Bell but turns invisible, so tapping Start never shifts the
+   buttons under the operator's thumb. */
+.action.slot-hidden {
+  visibility: hidden;
 }
 
-/* End meeting hides itself while idle; drop its row entirely so it leaves no
-   phantom gap in the action stack. */
-.advance-action-row:has(> #endBtn.hidden) {
+/* End meeting sits at the bottom of the card, so its row collapses outright
+   while idle -- reappearing only extends the card downward, never moving a
+   button the operator is about to press. */
+.advance-action-row:has(> #endBtn.slot-hidden) {
   display: none;
 }
 
 .secondary-action-row .action {
-  min-height: 38px;
+  min-height: 44px;
   font-size: 14px;
 }
 
@@ -996,13 +1008,13 @@ textarea {
   transition: border-color 150ms ease, filter 150ms ease, transform 60ms ease, box-shadow 150ms ease;
 }
 
-.action:hover {
+.action:hover:not(:disabled) {
   border-color: rgba(255, 255, 255, 0.28);
   filter: brightness(1.12);
   text-decoration: none;
 }
 
-.action:active {
+.action:active:not(:disabled) {
   transform: scale(0.98);
 }
 
