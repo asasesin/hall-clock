@@ -1,14 +1,19 @@
 package main
 
 import (
+	"crypto/pbkdf2"
 	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"time"
 )
 
 func newToken() (string, error) {
@@ -17,6 +22,105 @@ func newToken() (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+// PIN pairing
+// -----------
+// A control token runs the whole meeting, so handing one to any browser that
+// asks makes "paired" mean nothing more than "on the wifi". Pairing instead
+// asks a phone to prove somebody responsible for the hall let it in: it quotes
+// the PIN the congregation set in /setup.
+//
+// The PIN itself is never stored. The config file keeps only a random salt and
+// a PBKDF2 hash, so lifting the SD card out of the Pi yields something slow to
+// attack rather than a working PIN.
+
+const (
+	// minPINLength keeps a PIN clear of instantly-guessable territory without
+	// making it something nobody can read off a card in a dim hall. Six or more
+	// is worth recommending; four is the floor, not the advice.
+	minPINLength = 4
+	maxPINLength = 32
+
+	// pinIterations is the PBKDF2 work factor. A Pi does this in well under a
+	// second — unnoticeable when pairing a phone — while making an offline
+	// sweep of every short PIN cost real time instead of nothing.
+	pinIterations = 200000
+	pinKeyLength  = 32
+	pinSaltLength = 16
+)
+
+// maxPINFailures and pinLockout throttle guessing. Unlike a one-shot code, a
+// PIN is long-lived, so it has to survive somebody grinding at it all evening:
+// five wrong tries buy a five-minute pause, which turns even a four-digit
+// space into days of work rather than minutes.
+const (
+	maxPINFailures = 5
+	pinLockout     = 5 * time.Minute
+)
+
+// pairingGrace is the window opened at startup when no PIN has been set yet, so
+// the person installing the appliance can pair a phone and go set one. It is
+// the bootstrap, and it closes on its own.
+const pairingGrace = 15 * time.Minute
+
+// pairingWindow is how long "add a phone" stays open when an already-paired
+// controller starts it, so a second phone can join without being told the PIN.
+const pairingWindow = 5 * time.Minute
+
+// normalizePIN trims and length-checks an operator-supplied PIN. Digits are the
+// expected shape but nothing enforces that: a hall that prefers a word should
+// get a word.
+func normalizePIN(pin string) (string, error) {
+	pin = strings.TrimSpace(pin)
+	if n := len([]rune(pin)); n < minPINLength || n > maxPINLength {
+		return "", fmt.Errorf("PIN must be between %d and %d characters", minPINLength, maxPINLength)
+	}
+	return pin, nil
+}
+
+// hashPIN derives the stored verifier for a PIN and salt.
+func hashPIN(pin string, salt []byte) (string, error) {
+	key, err := pbkdf2.Key(sha256.New, pin, salt, pinIterations, pinKeyLength)
+	if err != nil {
+		return "", err
+	}
+	return base64.RawStdEncoding.EncodeToString(key), nil
+}
+
+// newPINCredentials returns the salt and hash to persist for a PIN. Each change
+// draws a fresh salt, so two halls choosing the same PIN store different bytes.
+func newPINCredentials(pin string) (salt string, hash string, err error) {
+	raw := make([]byte, pinSaltLength)
+	if _, err := rand.Read(raw); err != nil {
+		return "", "", err
+	}
+	hashed, err := hashPIN(pin, raw)
+	if err != nil {
+		return "", "", err
+	}
+	return base64.RawStdEncoding.EncodeToString(raw), hashed, nil
+}
+
+// pinMatches verifies a candidate PIN against stored credentials. It is
+// deliberately not a method on server: deriving the hash takes long enough that
+// it must happen outside the state mutex, or pairing a phone would stall the
+// timer everybody is watching.
+func pinMatches(saltEncoded string, expectedHash string, pin string) bool {
+	if expectedHash == "" || pin == "" {
+		return false
+	}
+	salt, err := base64.RawStdEncoding.DecodeString(saltEncoded)
+	if err != nil {
+		return false
+	}
+	got, err := hashPIN(pin, salt)
+	if err != nil {
+		return false
+	}
+	// Constant time, so how fast a guess is rejected says nothing about how
+	// much of it was right.
+	return subtle.ConstantTimeCompare([]byte(got), []byte(expectedHash)) == 1
 }
 
 func requestBaseURL(r *http.Request) string {

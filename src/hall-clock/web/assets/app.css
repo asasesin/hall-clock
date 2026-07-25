@@ -1597,8 +1597,14 @@ textarea {
   padding-top: 6px;
 }
 
-.form-actions .action-primary {
+/* The setup form's actions hug their text, unlike the control page where the
+   same class is stretched full width. A 999px pill collapses onto its own end
+   caps at that size, and it is the only round thing on a page built from 12px
+   inputs and cards — so square it off to match them and give the label room. */
+.form-actions .action {
   min-height: 52px;
+  padding: 12px 28px;
+  border-radius: 12px;
 }
 
 .pair-page {
@@ -1916,6 +1922,117 @@ textarea {
   }
 
   .adhoc-part-panel > .small-button {
+    width: 100%;
+  }
+}
+
+/* Pairing
+   -------
+   The prompt a controller phone shows when it holds no token yet. The hall
+   display is deliberately untouched by any of this — nothing about pairing
+   ever appears on the TV during a meeting. */
+
+.pairing-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.pairing-card {
+  width: min(420px, 100%);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 22px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.pairing-card h2 {
+  margin: 4px 0 8px;
+  font-size: 20px;
+}
+
+.pairing-lead {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.pairing-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  background: var(--inset);
+  color: var(--text);
+  font-size: 30px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.32em;
+  text-align: center;
+}
+
+.pairing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.pairing-actions .action {
+  flex: 1 1 auto;
+}
+
+.pin-row {
+  display: flex;
+  gap: 12px;
+  /* The label sits above the input, so aligning on the bottom edge puts the
+     button on exactly the same line as the field it acts on — no magic
+     numbers, whatever the label wraps to. */
+  align-items: flex-end;
+}
+
+.pin-row .field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* .action is 56px tall by default, which towers over a 46px field. Match the
+   input it sits beside — the same override .form-actions already makes. */
+.pin-row .pin-save {
+  flex: 0 0 auto;
+  min-height: 46px;
+  padding: 0 20px;
+  border-radius: 12px;
+  font-size: 15px;
+}
+
+.pin-hint {
+  margin-top: 8px;
+}
+
+/* Empty until an action reports back, so it must not reserve a blank line. */
+.pin-message:empty {
+  display: none;
+}
+
+.pin-message {
+  margin-top: 8px;
+}
+
+/* Side by side leaves the input too narrow to read a PIN in on a phone. */
+@media (max-width: 560px) {
+  .pin-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pin-row .pin-save {
     width: 100%;
   }
 }

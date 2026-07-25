@@ -430,7 +430,7 @@ func TestMidweekLanguageCacheStampedWithWrongWeekDocIsRejected(t *testing.T) {
 	}
 }
 
-func TestPairingEndpointAlwaysReturnsTokenizedControlURL(t *testing.T) {
+func TestPairingEndpointReturnsTokenlessControlURL(t *testing.T) {
 	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
 	if err != nil {
 		t.Fatal(err)
@@ -448,8 +448,8 @@ func TestPairingEndpointAlwaysReturnsTokenizedControlURL(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected OK pairing response, got %d", res.Code)
 	}
-	if !strings.Contains(res.Body.String(), "http://hallclock.local:8080?token=") {
-		t.Fatalf("expected tokenized root control URL, got %s", res.Body.String())
+	if !strings.Contains(res.Body.String(), "http://hallclock.local:8080\"") {
+		t.Fatalf("expected root control URL, got %s", res.Body.String())
 	}
 }
 
@@ -471,7 +471,7 @@ func TestPairingEndpointUsesConfiguredPublicURL(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected OK pairing response, got %d", res.Code)
 	}
-	if !strings.Contains(res.Body.String(), "http://hallclock.local:8080/control?token=") {
+	if !strings.Contains(res.Body.String(), "http://hallclock.local:8080/control\"") {
 		t.Fatalf("expected configured public URL, got %s", res.Body.String())
 	}
 }
@@ -539,7 +539,7 @@ func TestPairingEndpointUsesSavedAdvertisedURLWhenCLIFlagUnset(t *testing.T) {
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected OK pairing response, got %d", res.Code)
 	}
-	if !strings.Contains(res.Body.String(), "http://hallclock.local/control?token=") {
+	if !strings.Contains(res.Body.String(), "http://hallclock.local/control\"") {
 		t.Fatalf("expected saved advertised URL, got %s", res.Body.String())
 	}
 }
@@ -564,7 +564,7 @@ func TestPairingEndpointIgnoresWallclockLocalWhenOpenedFromLocalhost(t *testing.
 	if res.Code != http.StatusOK {
 		t.Fatalf("expected OK pairing response, got %d", res.Code)
 	}
-	if !strings.Contains(res.Body.String(), "http://") || !strings.Contains(res.Body.String(), ":8080?token=") {
+	if !strings.Contains(res.Body.String(), "http://") || !strings.Contains(res.Body.String(), ":8080\"") {
 		t.Fatalf("expected fallback LAN root URL, got %s", res.Body.String())
 	}
 	if strings.Contains(res.Body.String(), "hallclock.local") {

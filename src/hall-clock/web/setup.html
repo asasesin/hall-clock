@@ -65,6 +65,24 @@
           </select>
 
           <div class="section-title settings-subsection">
+            <h2>Controller PIN</h2>
+          </div>
+          <p id="pinStatus" class="notice hidden"></p>
+          <div class="pin-row">
+            <label class="field">
+              <span>New PIN</span>
+              <input id="pinInput" type="password" inputmode="numeric" autocomplete="new-password"
+                     maxlength="32" placeholder="••••••">
+            </label>
+            <button id="setPinBtn" class="action action-subtle pin-save" type="button">Save PIN</button>
+          </div>
+          <p class="field-hint pin-hint">
+            Phones need this PIN once, the first time they open the controller.
+            Six digits or more is worth it; write it somewhere the elders can find.
+          </p>
+          <p id="pinMessage" class="field-hint pin-message"></p>
+
+          <div class="section-title settings-subsection">
             <h2>Midweek import</h2>
           </div>
           <label class="toggle-row">

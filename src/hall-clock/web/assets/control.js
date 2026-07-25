@@ -576,13 +576,11 @@
     });
   });
   async function init() {
-    // Auto-pair from the open pairing endpoint so a printed, tokenless QR
-    // (http://hallclock.local/control) works on first scan. The warning only
-    // shows if pairing genuinely can't be reached.
-    const token = await WallClock.ensureToken();
-    if (!token) {
-      tokenWarning.classList.remove("hidden");
-    }
+    // A printed, tokenless QR (http://hallclock.local/control) lands here with
+    // no token, so ask for the code on the hall display. This blocks until the
+    // operator pairs — a controller whose every button returns 401 is worse
+    // than one that says plainly what it needs.
+    await WallClock.ensurePaired();
     WallClock.subscribe(render, (online) => {
       // A (re)connect delivers a full snapshot whose bell count is the new
       // baseline, not a ring: a server restart resets the counter to zero and a

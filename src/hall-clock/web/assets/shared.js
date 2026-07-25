@@ -14,41 +14,6 @@
     return localStorage.getItem(TOKEN_KEY) || "";
   }
 
-  // ensureToken returns a control token, auto-pairing from the open
-  // /api/pairing endpoint when this browser doesn't have one yet. This lets a
-  // printed QR point at a plain, tokenless URL (e.g. http://hallclock.local/
-  // control) and have the page pair itself on first load. Pairing is
-  // intentionally open on the LAN, so this grants no access the network did
-  // not already allow.
-  async function ensureToken() {
-    const existing = getToken();
-    if (existing) {
-      return existing;
-    }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10000);
-    try {
-      // Without a deadline a stalled first load leaves the page frozen before
-      // it ever subscribes — the same hazard postJSON guards against.
-      const response = await fetch("/api/pairing", { signal: controller.signal });
-      if (!response.ok) {
-        return "";
-      }
-      const pairing = await response.json();
-      const url = new URL(pairing.controlUrl, window.location.href);
-      const token = url.searchParams.get("token") || "";
-      if (token) {
-        localStorage.setItem(TOKEN_KEY, token);
-      }
-      return token;
-    } catch (error) {
-      console.error(error);
-      return "";
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
   // A request that never settles leaves its caller's "pending" flag set forever,
   // which is how a dropped wifi link used to permanently disable the Start
   // button. Always give fetch a deadline. Imports and updates talk to the
@@ -86,6 +51,130 @@
       throw error;
     }
     return response.json();
+  }
+
+  // Pairing asks for the hall's PIN, which the congregation sets in /setup.
+  // Nothing about pairing ever touches the display: the TV shows the clock and
+  // only the clock. Before prompting, check whether a no-PIN window is open —
+  // the first-boot grace period, or "add a phone" started from a paired
+  // controller — and if so pair silently.
+
+  async function pairingStatus() {
+    const response = await fetch("/api/pairing");
+    if (!response.ok) throw new Error("pairing status unavailable");
+    return response.json();
+  }
+
+  async function claimPairing(pin) {
+    const result = await postJSON("/api/pairing/claim", { pin: pin || "" }, { timeoutMs: 15000 });
+    const token = (result && result.token) || "";
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token);
+    }
+    return token;
+  }
+
+  function buildPinPrompt() {
+    const backdrop = document.createElement("div");
+    backdrop.className = "pairing-backdrop";
+    backdrop.innerHTML = `
+      <section class="pairing-card" role="dialog" aria-modal="true" aria-labelledby="pairingTitle">
+        <p class="eyebrow">Controller pairing</p>
+        <h2 id="pairingTitle">Enter the hall PIN</h2>
+        <p class="pairing-lead">This phone needs the PIN once. Ask whoever looks after the clock if you do not have it.</p>
+        <p class="notice pairing-error hidden" role="alert"></p>
+        <input class="pairing-input" type="password" inputmode="numeric" autocomplete="current-password"
+               maxlength="32" placeholder="••••" aria-label="Hall PIN">
+        <div class="pairing-actions">
+          <button type="button" class="action action-primary pairing-submit">Pair this device</button>
+        </div>
+      </section>`;
+    return backdrop;
+  }
+
+  // showPinPrompt resolves with a token once the operator enters the PIN. It
+  // never rejects: a page that cannot pair should sit on the prompt rather than
+  // fall through to a controller whose every button would fail with a 401.
+  function showPinPrompt() {
+    return new Promise((resolve) => {
+      const backdrop = buildPinPrompt();
+      const input = backdrop.querySelector(".pairing-input");
+      const submit = backdrop.querySelector(".pairing-submit");
+      const errorEl = backdrop.querySelector(".pairing-error");
+      document.body.appendChild(backdrop);
+      input.focus();
+
+      function showError(message) {
+        errorEl.textContent = message;
+        errorEl.classList.toggle("hidden", !message);
+      }
+
+      async function attempt() {
+        if (!input.value) {
+          showError("Enter the PIN.");
+          return;
+        }
+        submit.disabled = true;
+        try {
+          const token = await claimPairing(input.value);
+          if (!token) throw new Error("no token returned");
+          backdrop.remove();
+          resolve(token);
+          return;
+        } catch (error) {
+          input.value = "";
+          if (error.status === 429) {
+            // Repeated wrong PINs lock guessing for a few minutes.
+            showError("Too many wrong PINs. Wait a few minutes, then try again.");
+          } else if (error.status === 401) {
+            showError("Wrong PIN.");
+          } else if (error.status === 403) {
+            showError("Pairing is closed on this clock. Ask for a PIN to be set in Setup.");
+          } else {
+            console.error(error);
+            showError("Could not pair. Check the connection and try again.");
+          }
+        } finally {
+          submit.disabled = false;
+          input.focus();
+        }
+      }
+
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          attempt();
+        }
+      });
+      submit.addEventListener("click", attempt);
+    });
+  }
+
+  // ensurePaired resolves with a control token, prompting for the hall PIN when
+  // this browser has none and no open window can pair it silently.
+  async function ensurePaired() {
+    const existing = getToken();
+    if (existing) {
+      return existing;
+    }
+    try {
+      const status = await pairingStatus();
+      if (status.pairingOpen) {
+        const token = await claimPairing("");
+        if (token) return token;
+      }
+    } catch (error) {
+      // Fall through to the prompt: an unreachable status endpoint should not
+      // stop somebody who knows the PIN from typing it.
+      console.error(error);
+    }
+    return showPinPrompt();
+  }
+
+  // setPairingPIN changes the hall PIN. Setup calls this; it needs an existing
+  // token, so only an already-paired controller can rotate it.
+  async function setPairingPIN(pin) {
+    return postJSON("/api/pairing/pin", { pin }, { timeoutMs: 15000 });
   }
 
   function subscribe(onState, onConnection) {
@@ -151,7 +240,9 @@
 
   window.WallClock = {
     getToken,
-    ensureToken,
+    ensurePaired,
+    pairingStatus,
+    setPairingPIN,
     postJSON,
     subscribe,
     formatTime,

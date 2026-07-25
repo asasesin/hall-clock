@@ -23,10 +23,16 @@ type Talk struct {
 }
 
 type Config struct {
-	Version                  int                                `json:"version,omitempty"`
-	DeviceName               string                             `json:"deviceName"`
-	AdvertisedBaseURL        string                             `json:"advertisedBaseUrl"`
-	ControlToken             string                             `json:"controlToken"`
+	Version           int    `json:"version,omitempty"`
+	DeviceName        string `json:"deviceName"`
+	AdvertisedBaseURL string `json:"advertisedBaseUrl"`
+	ControlToken      string `json:"controlToken"`
+	// ControlPINSalt and ControlPINHash verify the pairing PIN without storing
+	// it. Empty means no PIN has been set yet, which is what opens the
+	// first-boot grace window — see pairingGrace. handleConfig builds its
+	// response from an explicit allowlist, so neither field is ever served.
+	ControlPINSalt           string                             `json:"controlPinSalt,omitempty"`
+	ControlPINHash           string                             `json:"controlPinHash,omitempty"`
 	MeetingType              string                             `json:"meetingType"`
 	MeetingStartTime         string                             `json:"meetingStartTime"`
 	MeetingStarts            []MeetingStart                     `json:"meetingStarts"`
