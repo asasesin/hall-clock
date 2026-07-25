@@ -13,6 +13,26 @@ import (
 	"time"
 )
 
+// midweekClock is a fixed Wednesday. meetingTypeForTime resolves the meeting
+// type from the calendar, and newServer derives the active schedule at
+// construction, so a test that wants the midweek program has to pin the day
+// before the server is built — otherwise the suite fails every Saturday and
+// Sunday, CI included.
+func midweekClock() func() time.Time {
+	now := time.Date(2026, 7, 22, 11, 0, 0, 0, time.UTC) // Wednesday
+	return func() time.Time { return now }
+}
+
+// newMidweekServer builds a server pinned to a midweek day.
+func newMidweekServer(t *testing.T, configPath string) *server {
+	t.Helper()
+	srv, err := newServerWithClock(configPath, midweekClock())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return srv
+}
+
 func TestProtectedControlRequiresToken(t *testing.T) {
 	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
 	if err != nil {
@@ -85,10 +105,7 @@ func TestMidweekLanguageChangeRequiresIdleTimer(t *testing.T) {
 }
 
 func TestMidweekLanguageSwitchUsesCachedSchedule(t *testing.T) {
-	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	srv := newMidweekServer(t, filepath.Join(t.TempDir(), "config.json"))
 
 	srv.mu.Lock()
 	srv.config.MidweekLanguageSchedules = map[string]MidweekLanguageSchedule{
@@ -372,16 +389,16 @@ func TestManualLanguageChoiceSurvivesMeetingStartWindow(t *testing.T) {
 }
 
 func TestAdhocPartAddedBeforeMeetingSurvivesStart(t *testing.T) {
-	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	// Meeting Tuesday 11:40 with a 5-minute prestart puts the session boundary
+	// at 11:35. The operator added the item at 11:33 — prepared for this
+	// meeting, not left over from the previous one. The day has to be pinned at
+	// construction: newServer picks the schedule from the calendar.
+	created := time.Date(2026, 7, 21, 11, 33, 0, 0, time.UTC)
+	now := time.Date(2026, 7, 21, 11, 42, 0, 0, time.UTC)
+	srv, err := newServerWithClock(filepath.Join(t.TempDir(), "config.json"), func() time.Time { return now })
 	if err != nil {
 		t.Fatal(err)
 	}
-	// Meeting Tuesday 11:40 with a 5-minute prestart puts the session boundary
-	// at 11:35. The operator added the item at 11:33 — prepared for this
-	// meeting, not left over from the previous one.
-	created := time.Date(2026, 7, 21, 11, 33, 0, 0, time.UTC)
-	now := time.Date(2026, 7, 21, 11, 42, 0, 0, time.UTC)
-	srv.clock = func() time.Time { return now }
 	srv.config.MeetingStarts = []MeetingStart{{ID: 1, Day: 2, Time: "11:40"}}
 	srv.config.PrestartSeconds = 300
 	srv.mu.Lock()
@@ -573,10 +590,7 @@ func TestPairingEndpointIgnoresWallclockLocalWhenOpenedFromLocalhost(t *testing.
 }
 
 func TestSaveConfigKeepsRunningTimer(t *testing.T) {
-	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	srv := newMidweekServer(t, filepath.Join(t.TempDir(), "config.json"))
 	mux, err := srv.routes("")
 	if err != nil {
 		t.Fatal(err)
@@ -681,10 +695,7 @@ func TestSaveConfigPreservesMidweekLanguageSchedulesWhenOmitted(t *testing.T) {
 }
 
 func TestSaveConfigResetsWhenCurrentTalkRemoved(t *testing.T) {
-	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	srv := newMidweekServer(t, filepath.Join(t.TempDir(), "config.json"))
 	mux, err := srv.routes("")
 	if err != nil {
 		t.Fatal(err)

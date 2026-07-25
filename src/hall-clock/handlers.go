@@ -333,9 +333,20 @@ func (s *server) handleMidweekLanguage(w http.ResponseWriter, r *http.Request) {
 
 	now := s.clock()
 	s.mu.Lock()
-	_, state, ok, message := s.applyCachedMidweekLanguageScheduleLocked(now, language)
+	// The weekend programme is a local template, so its language switch needs
+	// no workbook at all. Routing it through the midweek path made a Sunday
+	// switch depend on WOL being reachable.
+	weekend := meetingTypeForTime(now) == "weekend"
+	var state State
+	var ok bool
+	var message string
+	if weekend {
+		_, state, ok, message = s.applyWeekendLanguageLocked(now, language)
+	} else {
+		_, state, ok, message = s.applyCachedMidweekLanguageScheduleLocked(now, language)
+	}
 	s.mu.Unlock()
-	if !ok && strings.Contains(message, "not imported for this week yet") {
+	if !weekend && !ok && strings.Contains(message, "not imported for this week yet") {
 		_, state, ok, message = s.importMidweekLanguage(r.Context(), now, language)
 	}
 	if !ok {

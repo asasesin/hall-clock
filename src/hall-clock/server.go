@@ -40,6 +40,11 @@ type server struct {
 	// overtimeSession identifies the meeting the records belong to, so they clear
 	// themselves when the next meeting comes around.
 	overtimeSession time.Time
+	// lastPrefetchSweep throttles retries of the per-language pre-load. A hall
+	// whose second language has no workbook published yet would otherwise be
+	// refetched every loop iteration — four times an hour, forever. A warm
+	// cache costs nothing here: the sweep returns before any network call.
+	lastPrefetchSweep time.Time
 	// pairingUntil is when the current no-PIN window shuts: either the
 	// first-boot grace period or an "add a phone" window a paired controller
 	// opened. Zero means a PIN is required. Not persisted — a reboot with a PIN
@@ -74,7 +79,17 @@ type server struct {
 
 const currentConfigVersion = 1
 
+// newServer builds a server on the wall clock.
 func newServer(configPath string) (*server, error) {
+	return newServerWithClock(configPath, time.Now)
+}
+
+// newServerWithClock builds a server on a caller-supplied time source. The
+// initial state is derived at construction — meeting type, active schedule, CO
+// mode — so a clock set afterwards is already too late to influence it. Tests
+// pin a weekday here: meetingTypeForTime returns "weekend" on Saturday and
+// Sunday, which used to make four tests fail every weekend, CI included.
+func newServerWithClock(configPath string, clock func() time.Time) (*server, error) {
 	config, err := loadConfig(configPath)
 	if err != nil {
 		return nil, err
@@ -144,7 +159,7 @@ func newServer(configPath string) (*server, error) {
 		log.Printf("config: could not persist startup config to %s: %v", configPath, err)
 	}
 
-	now := time.Now()
+	now := clock()
 	coActive := circuitOverseerActive(config.CircuitOverseerExpiresAt, now)
 	activeMeetingType := meetingTypeForTime(now)
 	activeSchedule := scheduleForMeetingType(activeMeetingType, effectiveMidweekSchedule(config, StatusIdle, now), coActive, config.MidweekLanguage)
@@ -178,7 +193,7 @@ func newServer(configPath string) (*server, error) {
 		// setting a PIN closes it early.
 		pairingUntil:      firstBootPairingWindow(config, now),
 		subscribers:       map[chan State]struct{}{},
-		clock:             time.Now,
+		clock:             clock,
 		updateTriggerPath: defaultUpdateTriggerPath,
 		updateStatusPath:  defaultUpdateStatusPath,
 		updates:           &updateChecker{repo: defaultUpdateRepo},
