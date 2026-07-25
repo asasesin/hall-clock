@@ -36,6 +36,31 @@
   let languageCommandPending = false;
   let lastAppliedLanguage = "en";
   let commandNoticeTimeout = null;
+  // How long a confirmation stays armed. Three seconds was long enough to miss:
+  // an operator who taps, glances at the platform, then taps again has re-armed
+  // rather than confirmed, twice over, which reads as a dead button. The armed
+  // state also drains a bar (see .armed::after) so the window is visible rather
+  // than something you find out about by failing it.
+  const ARM_TIMEOUT_MS = 5000;
+
+  // A 401 means the token this browser held is dead — shared.js has already
+  // dropped it. Raise the PIN prompt in place rather than a banner: the banner
+  // used to point at /pair, which cannot pair anything and loops the operator
+  // straight back here still unpaired, mid-meeting.
+  let repairing = false;
+  async function repairPairing() {
+    if (repairing) return;
+    repairing = true;
+    try {
+      await WallClock.ensurePaired();
+      tokenWarning.classList.add("hidden");
+    } catch (error) {
+      console.error(error);
+      tokenWarning.classList.remove("hidden");
+    } finally {
+      repairing = false;
+    }
+  }
 
   // Most commands fail silently into the console; the operator deserves at
   // least a transient on-screen cue that a tap went nowhere.
@@ -171,7 +196,9 @@
       // legitimate requests -- advancing past the last part, changing CO mode
       // mid-meeting -- and telling the operator to re-pair for those sends them
       // chasing a problem that does not exist.
-      if (error.status === 401 || error.status === 403) {
+      if (error.status === 401) {
+        repairPairing();
+      } else if (error.status === 403) {
         tokenWarning.classList.remove("hidden");
       } else {
         flashCommandNotice();
@@ -192,7 +219,9 @@
       const state = await WallClock.postJSON(path, undefined, { timeoutMs: TIMER_COMMAND_TIMEOUT_MS });
       render(state);
     } catch (error) {
-      if (error.status === 401 || error.status === 403) {
+      if (error.status === 401) {
+        repairPairing();
+      } else if (error.status === 403) {
         tokenWarning.classList.remove("hidden");
       } else {
         flashCommandNotice();
@@ -231,7 +260,9 @@
     } catch (error) {
       // Only an auth failure means the token is wrong. A timeout or a refusal
       // must not send the operator off to re-pair the device.
-      if (error.status === 401 || error.status === 403) {
+      if (error.status === 401) {
+        repairPairing();
+      } else if (error.status === 403) {
         tokenWarning.classList.remove("hidden");
       }
       console.error(error);
@@ -378,7 +409,7 @@
         button.dataset.originalHtml = button.innerHTML;
       }
       button.textContent = confirmLabel;
-      partArmTimeout = setTimeout(disarmPartButtons, 3000);
+      partArmTimeout = setTimeout(disarmPartButtons, ARM_TIMEOUT_MS);
       return;
     }
     disarmPartButtons();
@@ -455,7 +486,7 @@
     if (!endBtn.classList.contains("armed")) {
       endBtn.classList.add("armed");
       endBtn.textContent = "Confirm end";
-      endArmTimeout = setTimeout(disarmEnd, 3000);
+      endArmTimeout = setTimeout(disarmEnd, ARM_TIMEOUT_MS);
       return;
     }
     disarmEnd();
@@ -473,8 +504,8 @@
     if (!nextBtn.classList.contains("armed")) {
       disarmPartButtons();
       nextBtn.classList.add("armed");
-      nextBtn.textContent = "Tap again to end part";
-      nextArmTimeout = setTimeout(disarmNext, 3000);
+      nextBtn.textContent = "Confirm next";
+      nextArmTimeout = setTimeout(disarmNext, ARM_TIMEOUT_MS);
       return;
     }
     disarmNext();
@@ -509,7 +540,7 @@
         console.error(error);
         if (languageStatus) {
           if (error.status === 401 || error.status === 403) {
-            tokenWarning.classList.remove("hidden");
+            if (error.status === 401) repairPairing();
             languageStatus.classList.add("error");
             languageStatus.classList.remove("hidden");
             languageStatus.textContent = `Pair this phone before changing languages.`;

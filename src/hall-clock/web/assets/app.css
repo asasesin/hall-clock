@@ -2045,3 +2045,45 @@ textarea {
     width: 100%;
   }
 }
+
+/* Confirmation window
+   -------------------
+   Every two-tap action arms for ARM_TIMEOUT_MS (control.js) and then quietly
+   disarms. Without a cue, an operator who taps, looks up at the platform, and
+   taps again has re-armed rather than confirmed — twice over, which reads as a
+   dead button. Drain a bar across the control so the window is something you
+   can see closing. Duration must match ARM_TIMEOUT_MS. */
+.action.armed,
+.part-picker-option.armed {
+  position: relative;
+  overflow: hidden;
+}
+
+.action.armed::after,
+.part-picker-option.armed::after {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  bottom: 0;
+  width: 100%;
+  height: 3px;
+  background: currentColor;
+  opacity: 0.5;
+  animation: arm-drain 5s linear forwards;
+}
+
+@keyframes arm-drain {
+  to {
+    width: 0;
+  }
+}
+
+/* A confirmation the operator cannot see draining is worse than none, but an
+   animation is not the only signal — the label already changed to "Confirm X". */
+@media (prefers-reduced-motion: reduce) {
+  .action.armed::after,
+  .part-picker-option.armed::after {
+    animation: none;
+    opacity: 0.25;
+  }
+}
