@@ -93,10 +93,8 @@ func TestPINNeverLeavesTheServer(t *testing.T) {
 		res := httptest.NewRecorder()
 		mux.ServeHTTP(res, httptest.NewRequest(http.MethodGet, path, nil))
 		body := res.Body.String()
-		for _, secret := range []string{testPIN, srv.config.ControlPINHash, srv.config.ControlPINSalt} {
-			if secret != "" && strings.Contains(body, secret) {
-				t.Fatalf("%s leaked PIN material: %s", path, body)
-			}
+		if strings.Contains(body, testPIN) {
+			t.Fatalf("%s leaked the PIN: %s", path, body)
 		}
 	}
 
@@ -104,14 +102,15 @@ func TestPINNeverLeavesTheServer(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if strings.Contains(string(state), testPIN) || strings.Contains(string(state), srv.config.ControlPINHash) {
-		t.Fatalf("broadcast state leaked PIN material: %s", state)
+	if strings.Contains(string(state), testPIN) {
+		t.Fatalf("broadcast state leaked the PIN: %s", state)
 	}
 }
 
-// The config file is what somebody gets by pulling the SD card, so a readable
-// PIN in it would make the whole scheme decorative.
-func TestPINIsStoredHashedNotInTheClear(t *testing.T) {
+// The PIN is stored as typed so /setup can show which one is current. That is a
+// deliberate trade — ControlToken sits in the same file in the clear and is
+// strictly more powerful — but it must still survive a restart intact.
+func TestPINIsPersistedAndVerifies(t *testing.T) {
 	path := filepath.Join(t.TempDir(), "config.json")
 	srv, err := newServer(path)
 	if err != nil {
@@ -129,32 +128,47 @@ func TestPINIsStoredHashedNotInTheClear(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if saved.ControlPINHash == "" || saved.ControlPINSalt == "" {
-		t.Fatal("expected a salt and hash to be persisted")
+	if saved.ControlPIN != testPIN {
+		t.Fatalf("expected the PIN to persist, got %q", saved.ControlPIN)
 	}
-	if saved.ControlPINHash == testPIN || saved.ControlPINSalt == testPIN {
-		t.Fatal("expected the PIN to be hashed, not stored")
+	if !pinMatches(saved.ControlPIN, testPIN) {
+		t.Fatal("expected the persisted PIN to verify")
 	}
-	if !pinMatches(saved.ControlPINSalt, saved.ControlPINHash, testPIN) {
-		t.Fatal("expected the persisted hash to verify the PIN")
-	}
-	if pinMatches(saved.ControlPINSalt, saved.ControlPINHash, "000000") {
+	if pinMatches(saved.ControlPIN, "000000") {
 		t.Fatal("expected a wrong PIN to be rejected")
 	}
 }
 
-// Two halls picking the same PIN must not produce the same stored bytes.
-func TestPINSaltIsPerInstall(t *testing.T) {
-	saltA, hashA, err := newPINCredentials(testPIN)
-	if err != nil {
+// A paired controller can read the PIN back — that is the point of storing it —
+// but an unpaired caller must not.
+func TestShowPINRequiresAToken(t *testing.T) {
+	srv, mux := newSecuredTestServer(t)
+
+	res := httptest.NewRecorder()
+	mux.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/api/pairing/pin", nil))
+	if res.Code != http.StatusUnauthorized {
+		t.Fatalf("expected unauthorized without a token, got %d", res.Code)
+	}
+	if strings.Contains(res.Body.String(), testPIN) {
+		t.Fatalf("unauthorized response leaked the PIN: %s", res.Body.String())
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/pairing/pin", nil)
+	req.Header.Set("X-Wall-Clock-Token", srv.config.ControlToken)
+	authed := httptest.NewRecorder()
+	mux.ServeHTTP(authed, req)
+	if authed.Code != http.StatusOK {
+		t.Fatalf("expected a paired controller to read the PIN, got %d", authed.Code)
+	}
+	var body struct {
+		PIN           string `json:"pin"`
+		PINConfigured bool   `json:"pinConfigured"`
+	}
+	if err := json.Unmarshal(authed.Body.Bytes(), &body); err != nil {
 		t.Fatal(err)
 	}
-	saltB, hashB, err := newPINCredentials(testPIN)
-	if err != nil {
-		t.Fatal(err)
-	}
-	if saltA == saltB || hashA == hashB {
-		t.Fatal("expected a fresh salt (and so a different hash) per install")
+	if body.PIN != testPIN || !body.PINConfigured {
+		t.Fatalf("expected the current PIN back, got %+v", body)
 	}
 }
 
@@ -284,6 +298,27 @@ func TestFirstBootGraceWindowPairsWithoutAPIN(t *testing.T) {
 	}
 	if res := claimPIN(mux, ""); res.Code != http.StatusOK {
 		t.Fatalf("expected the grace window to pair without a PIN, got %d: %s", res.Code, res.Body.String())
+	}
+}
+
+// The bootstrap window must survive the first phone pairing. ensurePaired
+// claims silently on page load, so a one-shot window was consumed by whichever
+// origin was opened first — leaving the setup page on another origin (or
+// another device) prompting for a PIN that had never been set, with no way to
+// set one. Time and setting a PIN already bound this window.
+func TestGraceWindowSurvivesPairingAPhone(t *testing.T) {
+	srv, mux := newPairingTestServer(t)
+
+	// Browser A opens /control and pairs itself with no UI at all.
+	if res := claimPIN(mux, ""); res.Code != http.StatusOK {
+		t.Fatalf("expected the first phone to pair, got %d", res.Code)
+	}
+	// Browser B — a different origin, so a different localStorage — opens /setup.
+	if res := claimPIN(mux, ""); res.Code != http.StatusOK {
+		t.Fatalf("expected the bootstrap window to still be open, got %d: %s", res.Code, res.Body.String())
+	}
+	if !srv.pairingOpenLocked(srv.clock()) {
+		t.Fatal("expected the bootstrap window to stay open for its full term")
 	}
 }
 
@@ -418,5 +453,29 @@ func TestChangingThePINKeepsPairedPhonesWorking(t *testing.T) {
 	}
 	if got := claimPIN(mux, testPIN); got.Code != http.StatusUnauthorized {
 		t.Fatalf("expected the old PIN to stop working, got %d", got.Code)
+	}
+}
+
+// A config reset mints a fresh ControlToken, so every browser is left holding a
+// dead one. The client checks with this endpoint before trusting what it stored;
+// without it, ensurePaired returned the stale token and every write 401'd
+// silently, forever.
+func TestVerifyTokenRejectsAStaleToken(t *testing.T) {
+	srv, mux := newSecuredTestServer(t)
+
+	req := httptest.NewRequest(http.MethodGet, "/api/pairing/verify", nil)
+	req.Header.Set("X-Wall-Clock-Token", srv.config.ControlToken)
+	res := httptest.NewRecorder()
+	mux.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected a live token to verify, got %d", res.Code)
+	}
+
+	stale := httptest.NewRequest(http.MethodGet, "/api/pairing/verify", nil)
+	stale.Header.Set("X-Wall-Clock-Token", "a-token-from-a-config-that-was-reset")
+	staleRes := httptest.NewRecorder()
+	mux.ServeHTTP(staleRes, stale)
+	if staleRes.Code != http.StatusUnauthorized {
+		t.Fatalf("expected a stale token to be rejected, got %d", staleRes.Code)
 	}
 }

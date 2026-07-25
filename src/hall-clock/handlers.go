@@ -91,9 +91,10 @@ func (s *server) handleEndMeeting(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, state)
 }
 
-// handleReset is kept on the legacy /api/control/reset route, but the control
-// now means "stop this timer": retire the current item, stage the next schedule
-// item, and leave the timer idle for the operator to start when ready.
+// handleReset backs the legacy /api/control/reset route. The "Stop timer"
+// button it belonged to is gone — it was Next part with a label that claimed
+// otherwise, and pause already lives on the primary button. The route stays as
+// an alias for /api/control/next so existing links and scripts keep working.
 func (s *server) handleReset(w http.ResponseWriter, r *http.Request) {
 	s.changeTalk(w, 1)
 }
@@ -269,17 +270,6 @@ func (s *server) handleMovePart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.talks[idx], s.talks[next] = s.talks[next], s.talks[idx]
-	state := s.snapshotLocked()
-	s.mu.Unlock()
-
-	s.broadcast(state)
-	writeJSON(w, state)
-}
-
-func (s *server) handleBell(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	s.bellSeq++
-	s.state.Bell = s.bellSeq
 	state := s.snapshotLocked()
 	s.mu.Unlock()
 

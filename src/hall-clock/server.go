@@ -22,7 +22,6 @@ type server struct {
 	talks       []Talk
 	startedAt   time.Time
 	remainingAt int
-	bellSeq     int64
 	subscribers map[chan State]struct{}
 	// saveMu serializes config persistence, and saveSeq/lastSavedSeq stop an
 	// older snapshot from renaming over a newer one when two writers race —
@@ -46,6 +45,13 @@ type server struct {
 	// opened. Zero means a PIN is required. Not persisted — a reboot with a PIN
 	// set should never come up open.
 	pairingUntil time.Time
+	// pairingOneShot marks a window that a single phone consumes: the "add a
+	// phone" window a paired controller opens deliberately. The first-boot
+	// window is NOT one-shot — it is already bounded by time and by setting a
+	// PIN, and consuming it on the first claim stranded everyone else. That
+	// claim is silent (ensurePaired pairs with no UI), so simply opening the
+	// controller on one origin used to lock the setup page out on another.
+	pairingOneShot bool
 	// pinFailures counts consecutive wrong PINs and pinLockedUntil is when
 	// guessing may resume, so a long-lived PIN cannot be ground down over an
 	// evening. Both reset on a success.
@@ -183,7 +189,7 @@ func newServer(configPath string) (*server, error) {
 // this start. A configured PIN means the hall is already secured and the
 // window never opens; an unset one means nobody could pair at all otherwise.
 func firstBootPairingWindow(config Config, now time.Time) time.Time {
-	if config.ControlPINHash != "" {
+	if config.ControlPIN != "" {
 		return time.Time{}
 	}
 	log.Printf("no pairing PIN set: any phone on the network can pair for the next %s — set a PIN in /setup", pairingGrace)
@@ -224,6 +230,8 @@ func (s *server) routes(publicURL string) (*http.ServeMux, error) {
 	mux.HandleFunc("GET /api/pairing", s.handlePairing(publicURL))
 	mux.HandleFunc("POST /api/pairing/claim", s.handleClaimPairing(publicURL))
 	mux.HandleFunc("POST /api/pairing/enable", s.protect(s.handleEnablePairing))
+	mux.HandleFunc("GET /api/pairing/verify", s.protect(s.handleVerifyToken))
+	mux.HandleFunc("GET /api/pairing/pin", s.protect(s.handleShowPIN))
 	mux.HandleFunc("POST /api/pairing/pin", s.protect(s.handleSetPIN))
 	mux.HandleFunc("POST /api/control/start", s.protect(s.handleStart))
 	mux.HandleFunc("POST /api/control/pause", s.protect(s.handlePause))
@@ -236,7 +244,6 @@ func (s *server) routes(publicURL string) (*http.ServeMux, error) {
 	mux.HandleFunc("POST /api/control/select", s.protect(s.handleSelect))
 	mux.HandleFunc("POST /api/control/adhoc-part", s.protect(s.handleAdhocPart))
 	mux.HandleFunc("POST /api/control/move-part", s.protect(s.handleMovePart))
-	mux.HandleFunc("POST /api/control/bell", s.protect(s.handleBell))
 	mux.HandleFunc("POST /api/control/circuit-overseer", s.protect(s.handleCircuitOverseer))
 	mux.HandleFunc("POST /api/control/midweek-language", s.protect(s.handleMidweekLanguage))
 	mux.HandleFunc("POST /api/config", s.protect(s.handleSaveConfig))
@@ -287,11 +294,12 @@ func (s *server) protect(next http.HandlerFunc) http.HandlerFunc {
 // openPairingLocked opens a window during which a phone may pair without the
 // PIN. Reusing a live window rather than extending it keeps a burst of clicks
 // from holding the door open indefinitely.
-func (s *server) openPairingLocked(now time.Time, window time.Duration) {
+func (s *server) openPairingLocked(now time.Time, window time.Duration, oneShot bool) {
 	if now.Before(s.pairingUntil) {
 		return
 	}
 	s.pairingUntil = now.Add(window)
+	s.pairingOneShot = oneShot
 }
 
 // pairingOpenLocked reports whether pairing currently needs no PIN.
@@ -305,7 +313,7 @@ func (s *server) handlePairing(publicURL string) http.HandlerFunc {
 		s.mu.Lock()
 		configuredURL := s.config.AdvertisedBaseURL
 		open := s.pairingOpenLocked(now)
-		pinSet := s.config.ControlPINHash != ""
+		pinSet := s.config.ControlPIN != ""
 		expiresAt := s.pairingUntil
 		s.mu.Unlock()
 
@@ -339,14 +347,12 @@ func (s *server) handleClaimPairing(publicURL string) http.HandlerFunc {
 		s.mu.Lock()
 		open := s.pairingOpenLocked(now)
 		locked := now.Before(s.pinLockedUntil)
-		salt := s.config.ControlPINSalt
-		expected := s.config.ControlPINHash
+		expected := s.config.ControlPIN
 		if !open && !locked && expected != "" {
-			// Spend the attempt now, before the slow derivation below. Counting
-			// failures only after the work finishes lets a burst of concurrent
-			// guesses all read an untripped counter and sail past the cap
-			// together — 400 tries per lockout instead of five, which is the
-			// difference between a short PIN lasting days and lasting an hour.
+			// Spend the attempt here, in the same critical section that read the
+			// lockout. Counting failures anywhere after this unlock lets a burst
+			// of concurrent guesses all observe an untripped counter and sail
+			// past the cap together — measured at 21 of 40 getting through.
 			s.pinFailures++
 			if s.pinFailures >= maxPINFailures {
 				s.pinFailures = 0
@@ -367,11 +373,8 @@ func (s *server) handleClaimPairing(publicURL string) http.HandlerFunc {
 				http.Error(w, "pairing is closed; restart the clock to reopen the setup window", http.StatusForbidden)
 				return
 			}
-			// Deriving the hash is deliberately slow, so it happens with the
-			// mutex released — the timer must not stall while a phone pairs.
-			// The attempt is already spent, so at most maxPINFailures of these
-			// can be in flight at once however hard the caller parallelises.
-			if !pinMatches(salt, expected, strings.TrimSpace(body.PIN)) {
+			// The attempt is already spent, so parallel guessing buys nothing.
+			if !pinMatches(expected, strings.TrimSpace(body.PIN)) {
 				http.Error(w, "wrong PIN", http.StatusUnauthorized)
 				return
 			}
@@ -380,9 +383,14 @@ func (s *server) handleClaimPairing(publicURL string) http.HandlerFunc {
 		s.mu.Lock()
 		s.pinFailures = 0
 		s.pinLockedUntil = time.Time{}
-		// A window pairs one phone. Leaving it open would let anyone who
-		// noticed it join for the rest of the five minutes.
-		s.pairingUntil = time.Time{}
+		// An "add a phone" window pairs exactly one phone; leaving it open would
+		// let anyone who noticed it join for the rest of the five minutes. The
+		// first-boot window stays open for its full term, so pairing a phone
+		// does not strand the laptop somebody is about to set the PIN from.
+		if s.pairingOneShot {
+			s.pairingUntil = time.Time{}
+			s.pairingOneShot = false
+		}
 		token := s.config.ControlToken
 		configuredURL := s.config.AdvertisedBaseURL
 		state := s.snapshotLocked()
@@ -414,16 +422,9 @@ func (s *server) handleSetPIN(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, err.Error(), http.StatusBadRequest)
 		return
 	}
-	salt, hash, err := newPINCredentials(pin)
-	if err != nil {
-		http.Error(w, "could not set the PIN", http.StatusInternalServerError)
-		return
-	}
-
 	now := s.clock()
 	s.mu.Lock()
-	s.config.ControlPINSalt = salt
-	s.config.ControlPINHash = hash
+	s.config.ControlPIN = pin
 	s.pinFailures = 0
 	s.pinLockedUntil = time.Time{}
 	// Setting a PIN closes the bootstrap window: the appliance is secured now,
@@ -443,12 +444,32 @@ func (s *server) handleSetPIN(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, map[string]any{"pinConfigured": true})
 }
 
+// handleVerifyToken exists so a browser can ask whether the token it is holding
+// still works. A config reset mints a fresh ControlToken, which leaves every
+// paired phone holding a dead one — and a client that assumes any stored token
+// is good then fails every write with a silent 401 forever.
+func (s *server) handleVerifyToken(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+// handleShowPIN returns the PIN in force. Token-protected, so the caller is an
+// already-paired controller — somebody who could change the PIN anyway, and who
+// on this appliance already holds full control of the clock. Being able to read
+// it back is what stops a forgotten PIN turning into a reset every few months.
+func (s *server) handleShowPIN(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	pin := s.config.ControlPIN
+	s.mu.Unlock()
+
+	writeJSON(w, map[string]any{"pin": pin, "pinConfigured": pin != ""})
+}
+
 // handleEnablePairing lets a paired controller open a short window so a second
 // phone can join without being told the PIN.
 func (s *server) handleEnablePairing(w http.ResponseWriter, r *http.Request) {
 	now := s.clock()
 	s.mu.Lock()
-	s.openPairingLocked(now, pairingWindow)
+	s.openPairingLocked(now, pairingWindow, true)
 	expiresAt := s.pairingUntil
 	state := s.snapshotLocked()
 	s.mu.Unlock()

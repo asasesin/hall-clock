@@ -30,7 +30,7 @@ The Raspberry Pi runs a single Go binary:
 - `/pair` always-available pairing page
 - `/qr.png` local QR code for pairing phones to the controller (carries no token)
 - `/api/pairing/claim` exchanges the hall PIN for a control token
-- `/api/pairing/pin` sets or changes the PIN (needs an existing token)
+- `/api/pairing/pin` reads (GET) or changes (POST) the PIN; both need a token
 - `/api/pairing/enable` opens a short PIN-free window to add another phone
 
 The app intentionally uses Server-Sent Events instead of WebSockets for the
@@ -51,11 +51,18 @@ entering the PIN the congregation set in `/setup`:
 2. A correct PIN returns the token, which the browser keeps in `localStorage`.
 3. That phone never asks again.
 
-The PIN is never stored. The config file holds only a random per-install salt
-and a PBKDF2-SHA256 hash (200k iterations), so pulling the SD card yields
-something slow to attack rather than a working PIN. It is also never served
-back: `/api/config` is built from an explicit allowlist, and the PIN appears in
-no response or state broadcast.
+The PIN is stored as typed, so `/setup` can show the hall which PIN is current
+(behind a Show/Hide toggle) — a shared secret nobody can look up is one that
+gets forgotten and reset every few months. Hashing it would buy less than it
+looks: `controlToken` sits in the same config file in the clear and is strictly
+more powerful, so anyone who can read `config.json` already owns the clock. The
+real cost is PIN reuse — **treat this PIN as readable by whoever can read the SD
+card, and do not reuse one that unlocks anything else.**
+
+It is still never served with the settings: `/api/config` is built from an
+explicit allowlist, and the PIN appears in no state broadcast. Only the
+token-protected `GET /api/pairing/pin` returns it, so reading it back requires
+an already-paired controller.
 
 Supporting rules:
 
@@ -81,8 +88,9 @@ Supporting rules:
   else, during meetings and outside them.
 
 If the PIN is forgotten and no phone is still paired, recovery means editing
-`/etc/hall-clock/config.json` on the Pi (clear `controlPinHash`, restart to get
-a fresh grace window).
+`/etc/hall-clock/config.json` on the Pi (clear `controlPin`, restart to get a
+fresh grace window). With a phone still paired, just read the PIN back in
+`/setup` — that is what it is there for.
 
 This is a trusted-LAN appliance, not an internet-facing service: keep it on an
 isolated network. The PIN raises the bar from "anyone on the Wi-Fi" to "anyone

@@ -5,7 +5,6 @@
   const statusFooter = document.getElementById("statusFooter");
   const clockValue = document.getElementById("clockValue");
   const connection = document.getElementById("connection");
-  let lastBell = -1;
 
   function render(state) {
     const prestart = state.prestartActive;
@@ -27,22 +26,9 @@
     const timing = state.status === "running" || state.status === "paused";
     timerPanel.classList.toggle("warning", timing && !prestart && !clockMode && state.remainingSeconds <= state.closingSeconds && state.remainingSeconds >= 0);
     timerPanel.classList.toggle("overtime", timing && !prestart && !clockMode && state.remainingSeconds < 0);
-
-    if (state.bell !== lastBell) {
-      const firstState = lastBell === -1;
-      lastBell = state.bell;
-      if (!firstState) {
-        WallClock.playBell();
-      }
-    }
   }
 
   WallClock.subscribe(render, (online) => {
-    // A (re)connect snapshot's bell count is the new baseline, not a ring: a
-    // server restart resets the counter and a reconnect may have skipped rings.
-    if (online) {
-      lastBell = -1;
-    }
     connection.textContent = online ? "Online" : "Offline";
     connection.classList.toggle("online", online);
     connection.classList.toggle("offline", !online);

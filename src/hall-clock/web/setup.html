@@ -9,9 +9,6 @@
   <body class="setup-page">
     <main class="setup-shell">
       <header class="setup-header">
-        <div class="setup-header-copy">
-          <h1>Hall Clock Settings</h1>
-        </div>
         <nav class="setup-nav">
           <a href="/pair">Pair</a>
           <a href="/control">Control</a>
@@ -68,6 +65,11 @@
             <h2>Controller PIN</h2>
           </div>
           <p id="pinStatus" class="notice hidden"></p>
+          <div id="pinCurrentRow" class="pin-current hidden">
+            <span class="pin-current-label">Current PIN</span>
+            <span id="pinCurrentValue" class="pin-current-value">••••••</span>
+            <button id="pinRevealBtn" class="small-button" type="button">Show</button>
+          </div>
           <div class="pin-row">
             <label class="field">
               <span>New PIN</span>
@@ -77,8 +79,8 @@
             <button id="setPinBtn" class="action action-subtle pin-save" type="button">Save PIN</button>
           </div>
           <p class="field-hint pin-hint">
-            Phones need this PIN once, the first time they open the controller.
-            Six digits or more is worth it; write it somewhere the elders can find.
+            Each phone enters this once and stays paired afterwards. Six digits
+            or more is worth it — keep a copy somewhere the elders can find.
           </p>
           <p id="pinMessage" class="field-hint pin-message"></p>
 

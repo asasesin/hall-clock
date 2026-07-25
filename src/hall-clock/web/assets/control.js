@@ -15,7 +15,6 @@
   const currentPartDuration = document.getElementById("currentPartDuration");
   const startBtn = document.getElementById("startBtn");
   const nextBtn = document.getElementById("nextBtn");
-  const resetBtn = document.getElementById("resetBtn");
   const endBtn = document.getElementById("endBtn");
   const partPosition = document.getElementById("partPosition");
   const nowPartTitle = document.getElementById("nowPartTitle");
@@ -26,9 +25,7 @@
   const coHint = document.getElementById("coHint");
   const languageSelect = document.getElementById("languageSelect");
   const languageStatus = document.getElementById("languageStatus");
-  let lastBell = -1;
   let scheduleKey = "";
-  let resetArmTimeout = null;
   let nextArmTimeout = null;
   let endArmTimeout = null;
   let partArmTimeout = null;
@@ -63,17 +60,19 @@
     timeValue.classList.toggle("overtime", timing && !prestart && state.remainingSeconds < 0);
     startBtn.disabled = timerCommandPending || advancePending;
     startBtn.dataset.status = state.status;
+    // Start only starts. Operators here never pause a part — they let it run
+    // over and move on — so while the clock is running the button has no job
+    // and goes invisible, keeping its slot so nothing shifts under a thumb.
+    // "Resume" survives for a paused state reached through the API, which the
+    // UI can no longer produce but must not strand anybody in.
+    startBtn.classList.toggle("slot-hidden", state.status === "running");
     if (!timerCommandPending) {
-      startBtn.textContent = state.status === "running" ? "Pause" : state.status === "paused" ? "Resume" : "Start";
+      startBtn.textContent = state.status === "paused" ? "Resume" : "Start";
     }
-    // Stop timer and End meeting only act on a live clock, so while idle they
-    // go invisible rather than greyed -- but keep their slots, so tapping Start
-    // never shifts the other buttons under the operator's thumb.
+    // End meeting only acts on a live clock, so while idle it goes invisible
+    // rather than greyed -- but keeps its slot, so tapping Start never shifts
+    // the other buttons under the operator's thumb.
     const idle = state.status === "idle";
-    resetBtn.classList.toggle("slot-hidden", idle);
-    if (idle && resetBtn.classList.contains("armed")) {
-      disarmReset();
-    }
     endBtn.classList.toggle("slot-hidden", idle);
     if (idle && endBtn.classList.contains("armed")) {
       disarmEnd();
@@ -146,32 +145,18 @@
     const atEnd = !next;
     const busy = timerCommandPending || advancePending;
     nextBtn.disabled = busy || atEnd;
-    resetBtn.disabled = busy || atEnd;
     endBtn.disabled = busy;
-    if (resetBtn.disabled && resetBtn.classList.contains("armed")) {
-      disarmReset();
-    }
     if (!nextBtn.classList.contains("armed")) {
       nextBtn.textContent = atEnd ? "Meeting complete" : "Next part";
     }
     // Stop is the same server action as Next, so it has nothing left to do at
     // the last item; point the operator at the button that does work there.
-    if (!resetBtn.classList.contains("armed")) {
-      resetBtn.textContent = atEnd ? "Use End meeting" : "Stop timer";
-    }
     if (nextBtn.disabled && nextBtn.classList.contains("armed")) {
       disarmNext();
     }
 
     renderPartPicker(schedule, state.currentTalkId);
 
-    if (state.bell !== lastBell) {
-      const firstState = lastBell === -1;
-      lastBell = state.bell;
-      if (!firstState) {
-        WallClock.playBell();
-      }
-    }
   }
 
   async function command(path, body) {
@@ -348,12 +333,6 @@
   }
 
 
-  function disarmReset() {
-    clearTimeout(resetArmTimeout);
-    resetArmTimeout = null;
-    resetBtn.classList.remove("armed");
-    resetBtn.textContent = "Stop timer";
-  }
 
   function disarmEnd() {
     clearTimeout(endArmTimeout);
@@ -411,12 +390,12 @@
     timerCommandPending = true;
     const status = latestStatus;
     startBtn.disabled = true;
-    startBtn.textContent = status === "running" ? "Pausing..." : status === "paused" ? "Resuming..." : "Starting...";
+    startBtn.textContent = status === "paused" ? "Resuming..." : "Starting...";
     try {
-      await timerCommand(status === "running" ? "/api/control/pause" : "/api/control/start");
+      await timerCommand("/api/control/start");
     } catch {
       startBtn.disabled = false;
-      startBtn.textContent = status === "running" ? "Pause" : status === "paused" ? "Resume" : "Start";
+      startBtn.textContent = status === "paused" ? "Resume" : "Start";
     } finally {
       timerCommandPending = false;
     }
@@ -470,17 +449,6 @@
       closeAdhocPartPanel();
     }
   });
-  resetBtn.addEventListener("click", () => {
-    if (resetBtn.disabled) return;
-    if (!resetBtn.classList.contains("armed")) {
-      resetBtn.classList.add("armed");
-      resetBtn.textContent = "Confirm stop";
-      resetArmTimeout = setTimeout(disarmReset, 3000);
-      return;
-    }
-    disarmReset();
-    advanceCommand("/api/control/reset");
-  });
   // Ending a meeting stops the clock, so it always takes two taps -- there is no
   // idle shortcut, since ending while idle is a no-op the button is disabled for.
   endBtn.addEventListener("click", () => {
@@ -512,7 +480,6 @@
     disarmNext();
     advanceCommand("/api/control/next");
   });
-  document.getElementById("bellBtn").addEventListener("click", () => command("/api/control/bell"));
   coToggle.addEventListener("click", () => {
     const next = !(latestState && latestState.circuitOverseer);
     command("/api/control/circuit-overseer", { on: next });
@@ -577,17 +544,11 @@
   });
   async function init() {
     // A printed, tokenless QR (http://hallclock.local/control) lands here with
-    // no token, so ask for the code on the hall display. This blocks until the
-    // operator pairs — a controller whose every button returns 401 is worse
-    // than one that says plainly what it needs.
+    // no token, so ask for the hall PIN. This blocks until the operator pairs —
+    // a controller whose every button returns 401 is worse than one that says
+    // plainly what it needs.
     await WallClock.ensurePaired();
     WallClock.subscribe(render, (online) => {
-      // A (re)connect delivers a full snapshot whose bell count is the new
-      // baseline, not a ring: a server restart resets the counter to zero and a
-      // reconnect may have skipped rings, and neither should sound the bell now.
-      if (online) {
-        lastBell = -1;
-      }
       offlineNotice.classList.toggle("hidden", online);
     });
   }

@@ -388,23 +388,51 @@
   const setPinBtn = document.getElementById("setPinBtn");
   const pinMessage = document.getElementById("pinMessage");
   const pinStatus = document.getElementById("pinStatus");
+  const pinCurrentRow = document.getElementById("pinCurrentRow");
+  const pinCurrentValue = document.getElementById("pinCurrentValue");
+  const pinRevealBtn = document.getElementById("pinRevealBtn");
+  let currentPin = "";
+  let pinRevealed = false;
+
+  function renderCurrentPin() {
+    pinCurrentRow.classList.toggle("hidden", !currentPin);
+    if (!currentPin) return;
+    pinCurrentValue.textContent = pinRevealed ? currentPin : "•".repeat(currentPin.length);
+    pinCurrentValue.classList.toggle("revealed", pinRevealed);
+    pinRevealBtn.textContent = pinRevealed ? "Hide" : "Show";
+  }
 
   async function refreshPinStatus() {
     try {
       const status = await WallClock.pairingStatus();
       const missing = !status.pinConfigured;
       pinStatus.textContent = missing
-        ? "No PIN is set, so any phone on the network can pair with this clock. Set one below."
+        ? "No PIN is set yet, so any phone on the network can pair with this clock. Set one below."
         : "";
       pinStatus.classList.toggle("hidden", !missing);
+
+      currentPin = "";
+      if (!missing) {
+        const current = await WallClock.showPairingPIN();
+        currentPin = current.pin || "";
+      }
+      // Never leave a PIN on screen across a refresh — /setup can be open on a
+      // laptop plugged into the projector.
+      pinRevealed = false;
+      renderCurrentPin();
     } catch (error) {
       console.error(error);
     }
   }
 
+  pinRevealBtn.addEventListener("click", () => {
+    pinRevealed = !pinRevealed;
+    renderCurrentPin();
+  });
+
   setPinBtn.addEventListener("click", async () => {
     if (!pinInput.value) {
-      pinMessage.textContent = "Enter a PIN first.";
+      pinMessage.textContent = "Type a PIN first.";
       return;
     }
     setPinBtn.disabled = true;

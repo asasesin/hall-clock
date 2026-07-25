@@ -1,9 +1,7 @@
 package main
 
 import (
-	"crypto/pbkdf2"
 	"crypto/rand"
-	"crypto/sha256"
 	"crypto/subtle"
 	"encoding/base64"
 	"errors"
@@ -31,9 +29,13 @@ func newToken() (string, error) {
 // asks a phone to prove somebody responsible for the hall let it in: it quotes
 // the PIN the congregation set in /setup.
 //
-// The PIN itself is never stored. The config file keeps only a random salt and
-// a PBKDF2 hash, so lifting the SD card out of the Pi yields something slow to
-// attack rather than a working PIN.
+// The PIN is stored as typed, so /setup can show the hall which PIN is current
+// — a shared secret nobody can look up is one that gets forgotten and reset
+// every few months. Hashing it would buy less than it appears to: ControlToken
+// sits in the same file in the clear and is strictly more powerful, so anyone
+// who can read config.json already owns the clock. The real cost is PIN reuse
+// — treat this PIN as readable by whoever can read the SD card, and do not
+// reuse one that unlocks anything else.
 
 const (
 	// minPINLength keeps a PIN clear of instantly-guessable territory without
@@ -41,19 +43,11 @@ const (
 	// is worth recommending; four is the floor, not the advice.
 	minPINLength = 4
 	maxPINLength = 32
-
-	// pinIterations is the PBKDF2 work factor. A Pi does this in well under a
-	// second — unnoticeable when pairing a phone — while making an offline
-	// sweep of every short PIN cost real time instead of nothing.
-	pinIterations = 200000
-	pinKeyLength  = 32
-	pinSaltLength = 16
 )
 
-// maxPINFailures and pinLockout throttle guessing. Unlike a one-shot code, a
-// PIN is long-lived, so it has to survive somebody grinding at it all evening:
-// five wrong tries buy a five-minute pause, which turns even a four-digit
-// space into days of work rather than minutes.
+// maxPINFailures and pinLockout throttle guessing. A PIN is long-lived, so it
+// has to survive somebody grinding at it all evening: five wrong tries buy a
+// five-minute pause, which turns even a four-digit space into days of work.
 const (
 	maxPINFailures = 5
 	pinLockout     = 5 * time.Minute
@@ -79,48 +73,13 @@ func normalizePIN(pin string) (string, error) {
 	return pin, nil
 }
 
-// hashPIN derives the stored verifier for a PIN and salt.
-func hashPIN(pin string, salt []byte) (string, error) {
-	key, err := pbkdf2.Key(sha256.New, pin, salt, pinIterations, pinKeyLength)
-	if err != nil {
-		return "", err
-	}
-	return base64.RawStdEncoding.EncodeToString(key), nil
-}
-
-// newPINCredentials returns the salt and hash to persist for a PIN. Each change
-// draws a fresh salt, so two halls choosing the same PIN store different bytes.
-func newPINCredentials(pin string) (salt string, hash string, err error) {
-	raw := make([]byte, pinSaltLength)
-	if _, err := rand.Read(raw); err != nil {
-		return "", "", err
-	}
-	hashed, err := hashPIN(pin, raw)
-	if err != nil {
-		return "", "", err
-	}
-	return base64.RawStdEncoding.EncodeToString(raw), hashed, nil
-}
-
-// pinMatches verifies a candidate PIN against stored credentials. It is
-// deliberately not a method on server: deriving the hash takes long enough that
-// it must happen outside the state mutex, or pairing a phone would stall the
-// timer everybody is watching.
-func pinMatches(saltEncoded string, expectedHash string, pin string) bool {
-	if expectedHash == "" || pin == "" {
+// pinMatches compares a candidate against the stored PIN in constant time, so
+// how fast a guess is rejected says nothing about how much of it was right.
+func pinMatches(expected string, pin string) bool {
+	if expected == "" || pin == "" {
 		return false
 	}
-	salt, err := base64.RawStdEncoding.DecodeString(saltEncoded)
-	if err != nil {
-		return false
-	}
-	got, err := hashPIN(pin, salt)
-	if err != nil {
-		return false
-	}
-	// Constant time, so how fast a guess is rejected says nothing about how
-	// much of it was right.
-	return subtle.ConstantTimeCompare([]byte(got), []byte(expectedHash)) == 1
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(pin)) == 1
 }
 
 func requestBaseURL(r *http.Request) string {
