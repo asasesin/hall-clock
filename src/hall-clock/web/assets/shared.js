@@ -14,41 +14,6 @@
     return localStorage.getItem(TOKEN_KEY) || "";
   }
 
-  // ensureToken returns a control token, auto-pairing from the open
-  // /api/pairing endpoint when this browser doesn't have one yet. This lets a
-  // printed QR point at a plain, tokenless URL (e.g. http://hallclock.local/
-  // control) and have the page pair itself on first load. Pairing is
-  // intentionally open on the LAN, so this grants no access the network did
-  // not already allow.
-  async function ensureToken() {
-    const existing = getToken();
-    if (existing) {
-      return existing;
-    }
-    const controller = new AbortController();
-    const timer = setTimeout(() => controller.abort(), 10000);
-    try {
-      // Without a deadline a stalled first load leaves the page frozen before
-      // it ever subscribes — the same hazard postJSON guards against.
-      const response = await fetch("/api/pairing", { signal: controller.signal });
-      if (!response.ok) {
-        return "";
-      }
-      const pairing = await response.json();
-      const url = new URL(pairing.controlUrl, window.location.href);
-      const token = url.searchParams.get("token") || "";
-      if (token) {
-        localStorage.setItem(TOKEN_KEY, token);
-      }
-      return token;
-    } catch (error) {
-      console.error(error);
-      return "";
-    } finally {
-      clearTimeout(timer);
-    }
-  }
-
   // A request that never settles leaves its caller's "pending" flag set forever,
   // which is how a dropped wifi link used to permanently disable the Start
   // button. Always give fetch a deadline. Imports and updates talk to the
@@ -79,6 +44,12 @@
       clearTimeout(timer);
     }
     if (!response.ok) {
+      // A 401 means this browser's token is dead — usually the config was reset
+      // and the server minted a new one. Drop it so the next ensurePaired()
+      // pairs again instead of retrying a credential that can never work.
+      if (response.status === 401 && path !== "/api/pairing/claim") {
+        clearToken();
+      }
       // Carry the status: callers must tell "your token is bad" apart from an
       // ordinary refusal like advancing past the last part of the meeting.
       const error = new Error(await response.text());
@@ -86,6 +57,200 @@
       throw error;
     }
     return response.json();
+  }
+
+  // Pairing asks for the hall's PIN, which the congregation sets in /setup.
+  // Nothing about pairing ever touches the display: the TV shows the clock and
+  // only the clock. Before prompting, check whether a no-PIN window is open —
+  // the first-boot grace period, or "add a phone" started from a paired
+  // controller — and if so pair silently.
+
+  function clearToken() {
+    localStorage.removeItem(TOKEN_KEY);
+  }
+
+  // tokenWorks asks the server whether the stored token is still valid. Trusting
+  // localStorage blindly is what turned a config reset into a browser that
+  // silently 401s every write and never re-pairs.
+  async function tokenWorks(token) {
+    if (!token) return false;
+    try {
+      const response = await fetch("/api/pairing/verify", {
+        headers: { "X-Wall-Clock-Token": token },
+      });
+      return response.ok;
+    } catch (error) {
+      // Offline is not the same as unpaired: keep the token and let the page
+      // retry rather than dumping the operator into a PIN prompt mid-meeting.
+      console.error(error);
+      return true;
+    }
+  }
+
+  async function pairingStatus() {
+    const response = await fetch("/api/pairing");
+    if (!response.ok) throw new Error("pairing status unavailable");
+    return response.json();
+  }
+
+  async function claimPairing(pin) {
+    const result = await postJSON("/api/pairing/claim", { pin: pin || "" }, { timeoutMs: 15000 });
+    const token = (result && result.token) || "";
+    if (token) {
+      localStorage.setItem(TOKEN_KEY, token);
+    }
+    return token;
+  }
+
+  // A clock with no PIN set and no window open cannot be paired by anybody:
+  // there is no PIN to type. Asking for one is a dead end that also hides the
+  // settings page behind a modal, so say what actually unblocks it instead.
+  function buildNoPinPrompt() {
+    const backdrop = document.createElement("div");
+    backdrop.className = "pairing-backdrop";
+    backdrop.innerHTML = `
+      <section class="pairing-card" role="dialog" aria-modal="true" aria-labelledby="pairingTitle">
+        <p class="eyebrow">Controller pairing</p>
+        <h2 id="pairingTitle">Pairing is closed</h2>
+        <p class="pairing-lead">
+          No PIN has been set on this clock, and the window for setting one has
+          closed. Restart the hall clock to reopen it for 15 minutes, then set a
+          PIN from this page.
+        </p>
+        <div class="pairing-actions">
+          <button type="button" class="action action-primary pairing-recheck">Check again</button>
+        </div>
+      </section>`;
+    return backdrop;
+  }
+
+  function showNoPinPrompt() {
+    return new Promise((resolve) => {
+      const backdrop = buildNoPinPrompt();
+      document.body.appendChild(backdrop);
+      backdrop.querySelector(".pairing-recheck").addEventListener("click", async () => {
+        backdrop.remove();
+        resolve(await ensurePaired());
+      });
+    });
+  }
+
+  function buildPinPrompt() {
+    const backdrop = document.createElement("div");
+    backdrop.className = "pairing-backdrop";
+    backdrop.innerHTML = `
+      <section class="pairing-card" role="dialog" aria-modal="true" aria-labelledby="pairingTitle">
+        <p class="eyebrow">Controller pairing</p>
+        <h2 id="pairingTitle">Enter the hall PIN</h2>
+        <p class="notice pairing-error hidden" role="alert"></p>
+        <input class="pairing-input" type="password" inputmode="numeric" autocomplete="current-password"
+               maxlength="32" placeholder="••••" aria-label="Hall PIN">
+        <div class="pairing-actions">
+          <button type="button" class="action action-primary pairing-submit">Pair this device</button>
+        </div>
+      </section>`;
+    return backdrop;
+  }
+
+  // showPinPrompt resolves with a token once the operator enters the PIN. It
+  // never rejects: a page that cannot pair should sit on the prompt rather than
+  // fall through to a controller whose every button would fail with a 401.
+  function showPinPrompt() {
+    return new Promise((resolve) => {
+      const backdrop = buildPinPrompt();
+      const input = backdrop.querySelector(".pairing-input");
+      const submit = backdrop.querySelector(".pairing-submit");
+      const errorEl = backdrop.querySelector(".pairing-error");
+      document.body.appendChild(backdrop);
+      input.focus();
+
+      function showError(message) {
+        errorEl.textContent = message;
+        errorEl.classList.toggle("hidden", !message);
+      }
+
+      async function attempt() {
+        if (!input.value) {
+          showError("Type the PIN first.");
+          return;
+        }
+        submit.disabled = true;
+        try {
+          const token = await claimPairing(input.value);
+          if (!token) throw new Error("no token returned");
+          backdrop.remove();
+          resolve(token);
+          return;
+        } catch (error) {
+          input.value = "";
+          if (error.status === 429) {
+            // Repeated wrong PINs lock guessing for a few minutes.
+            showError("Too many wrong tries. Wait five minutes, then try again.");
+          } else if (error.status === 401) {
+            showError("That PIN was not right.");
+          } else if (error.status === 403) {
+            showError("No PIN has been set on this clock yet. Set one in Setup from a phone that is already paired.");
+          } else {
+            console.error(error);
+            showError("Could not reach the clock. Check the wifi and try again.");
+          }
+        } finally {
+          submit.disabled = false;
+          input.focus();
+        }
+      }
+
+      input.addEventListener("keydown", (event) => {
+        if (event.key === "Enter") {
+          event.preventDefault();
+          attempt();
+        }
+      });
+      submit.addEventListener("click", attempt);
+    });
+  }
+
+  // ensurePaired resolves with a control token, prompting for the hall PIN when
+  // this browser has none and no open window can pair it silently.
+  async function ensurePaired() {
+    const existing = getToken();
+    if (existing && (await tokenWorks(existing))) {
+      return existing;
+    }
+    if (existing) {
+      clearToken();
+    }
+    try {
+      const status = await pairingStatus();
+      if (status.pairingOpen) {
+        const token = await claimPairing("");
+        if (token) return token;
+      }
+      if (!status.pinConfigured) {
+        return showNoPinPrompt();
+      }
+    } catch (error) {
+      // Fall through to the prompt: an unreachable status endpoint should not
+      // stop somebody who knows the PIN from typing it.
+      console.error(error);
+    }
+    return showPinPrompt();
+  }
+
+  // showPairingPIN reads the PIN in force. Needs a token, so only an
+  // already-paired controller can see it.
+  async function showPairingPIN() {
+    const response = await fetch("/api/pairing/pin", {
+      headers: { "X-Wall-Clock-Token": getToken() },
+    });
+    if (!response.ok) throw new Error("could not read the PIN");
+    return response.json();
+  }
+
+  // setPairingPIN changes the hall PIN. Setup calls this; it needs an existing
+  // token, so only an already-paired controller can rotate it.
+  async function setPairingPIN(pin) {
+    return postJSON("/api/pairing/pin", { pin }, { timeoutMs: 15000 });
   }
 
   function subscribe(onState, onConnection) {
@@ -123,41 +288,19 @@
     return "Idle";
   }
 
-  let bellContext = null;
-
-  function playBell() {
-    const AudioContext = window.AudioContext || window.webkitAudioContext;
-    if (!AudioContext) return;
-    if (!bellContext) {
-      bellContext = new AudioContext();
-    }
-    if (bellContext.state === "suspended") {
-      bellContext.resume();
-    }
-    const context = bellContext;
-    const gain = context.createGain();
-    gain.gain.setValueAtTime(0.0001, context.currentTime);
-    gain.gain.exponentialRampToValueAtTime(0.35, context.currentTime + 0.02);
-    gain.gain.exponentialRampToValueAtTime(0.0001, context.currentTime + 1.4);
-    gain.connect(context.destination);
-
-    const oscillator = context.createOscillator();
-    oscillator.type = "sine";
-    oscillator.frequency.setValueAtTime(880, context.currentTime);
-    oscillator.connect(gain);
-    oscillator.start();
-    oscillator.stop(context.currentTime + 1.45);
-  }
 
   window.WallClock = {
     getToken,
-    ensureToken,
+    clearToken,
+    ensurePaired,
+    pairingStatus,
+    showPairingPIN,
+    setPairingPIN,
     postJSON,
     subscribe,
     formatTime,
     formatClock,
     formatStartTime,
     statusLabel,
-    playBell,
   };
 })();

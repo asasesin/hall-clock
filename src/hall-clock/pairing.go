@@ -2,13 +2,16 @@ package main
 
 import (
 	"crypto/rand"
+	"crypto/subtle"
 	"encoding/base64"
 	"errors"
+	"fmt"
 	"net"
 	"net/http"
 	"net/url"
 	"os"
 	"strings"
+	"time"
 )
 
 func newToken() (string, error) {
@@ -17,6 +20,66 @@ func newToken() (string, error) {
 		return "", err
 	}
 	return base64.RawURLEncoding.EncodeToString(buf), nil
+}
+
+// PIN pairing
+// -----------
+// A control token runs the whole meeting, so handing one to any browser that
+// asks makes "paired" mean nothing more than "on the wifi". Pairing instead
+// asks a phone to prove somebody responsible for the hall let it in: it quotes
+// the PIN the congregation set in /setup.
+//
+// The PIN is stored as typed, so /setup can show the hall which PIN is current
+// — a shared secret nobody can look up is one that gets forgotten and reset
+// every few months. Hashing it would buy less than it appears to: ControlToken
+// sits in the same file in the clear and is strictly more powerful, so anyone
+// who can read config.json already owns the clock. The real cost is PIN reuse
+// — treat this PIN as readable by whoever can read the SD card, and do not
+// reuse one that unlocks anything else.
+
+const (
+	// minPINLength keeps a PIN clear of instantly-guessable territory without
+	// making it something nobody can read off a card in a dim hall. Six or more
+	// is worth recommending; four is the floor, not the advice.
+	minPINLength = 4
+	maxPINLength = 32
+)
+
+// maxPINFailures and pinLockout throttle guessing. A PIN is long-lived, so it
+// has to survive somebody grinding at it all evening: five wrong tries buy a
+// five-minute pause, which turns even a four-digit space into days of work.
+const (
+	maxPINFailures = 5
+	pinLockout     = 5 * time.Minute
+)
+
+// pairingGrace is the window opened at startup when no PIN has been set yet, so
+// the person installing the appliance can pair a phone and go set one. It is
+// the bootstrap, and it closes on its own.
+const pairingGrace = 15 * time.Minute
+
+// pairingWindow is how long "add a phone" stays open when an already-paired
+// controller starts it, so a second phone can join without being told the PIN.
+const pairingWindow = 5 * time.Minute
+
+// normalizePIN trims and length-checks an operator-supplied PIN. Digits are the
+// expected shape but nothing enforces that: a hall that prefers a word should
+// get a word.
+func normalizePIN(pin string) (string, error) {
+	pin = strings.TrimSpace(pin)
+	if n := len([]rune(pin)); n < minPINLength || n > maxPINLength {
+		return "", fmt.Errorf("PIN must be between %d and %d characters", minPINLength, maxPINLength)
+	}
+	return pin, nil
+}
+
+// pinMatches compares a candidate against the stored PIN in constant time, so
+// how fast a guess is rejected says nothing about how much of it was right.
+func pinMatches(expected string, pin string) bool {
+	if expected == "" || pin == "" {
+		return false
+	}
+	return subtle.ConstantTimeCompare([]byte(expected), []byte(pin)) == 1
 }
 
 func requestBaseURL(r *http.Request) string {

@@ -23,10 +23,16 @@ type Talk struct {
 }
 
 type Config struct {
-	Version                  int                                `json:"version,omitempty"`
-	DeviceName               string                             `json:"deviceName"`
-	AdvertisedBaseURL        string                             `json:"advertisedBaseUrl"`
-	ControlToken             string                             `json:"controlToken"`
+	Version           int    `json:"version,omitempty"`
+	DeviceName        string `json:"deviceName"`
+	AdvertisedBaseURL string `json:"advertisedBaseUrl"`
+	ControlToken      string `json:"controlToken"`
+	// ControlPIN is the pairing PIN, stored as typed so /setup can show the
+	// hall which one is current. Empty means none has been set yet, which is
+	// what opens the first-boot grace window — see pairingGrace. handleConfig
+	// builds its response from an explicit allowlist, so this never rides along
+	// with the settings; only the token-protected GET /api/pairing/pin returns it.
+	ControlPIN               string                             `json:"controlPin,omitempty"`
 	MeetingType              string                             `json:"meetingType"`
 	MeetingStartTime         string                             `json:"meetingStartTime"`
 	MeetingStarts            []MeetingStart                     `json:"meetingStarts"`
@@ -110,7 +116,6 @@ type State struct {
 	MidweekLanguage           string     `json:"midweekLanguage,omitempty"`
 	Schedule                  []Talk     `json:"schedule"`
 	Now                       time.Time  `json:"now"`
-	Bell                      int64      `json:"bell"`
 	PairingActive             bool       `json:"pairingActive"`
 	PairingExpiresAt          *time.Time `json:"pairingExpiresAt,omitempty"`
 }

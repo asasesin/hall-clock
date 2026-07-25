@@ -381,15 +381,82 @@
     }
   });
 
-  (async () => {
-    // Setup sits behind the same LAN-open pairing as control, so pair
-    // automatically on first load — a browser that never visited /control
-    // (or lost its per-origin token to a hostname change) would otherwise
-    // have every save and update fail with a token error.
-    const token = await WallClock.ensureToken();
-    if (!token) {
-      tokenWarning.classList.remove("hidden");
+  // Controller PIN. An unset PIN is the one setting worth nagging about: until
+  // it exists the clock reopens a pairing window on every boot, so anyone on
+  // the wifi can take it over.
+  const pinInput = document.getElementById("pinInput");
+  const setPinBtn = document.getElementById("setPinBtn");
+  const pinMessage = document.getElementById("pinMessage");
+  const pinStatus = document.getElementById("pinStatus");
+  const pinCurrentRow = document.getElementById("pinCurrentRow");
+  const pinCurrentValue = document.getElementById("pinCurrentValue");
+  const pinRevealBtn = document.getElementById("pinRevealBtn");
+  let currentPin = "";
+  let pinRevealed = false;
+
+  function renderCurrentPin() {
+    pinCurrentRow.classList.toggle("hidden", !currentPin);
+    if (!currentPin) return;
+    pinCurrentValue.textContent = pinRevealed ? currentPin : "•".repeat(currentPin.length);
+    pinCurrentValue.classList.toggle("revealed", pinRevealed);
+    pinRevealBtn.textContent = pinRevealed ? "Hide" : "Show";
+  }
+
+  async function refreshPinStatus() {
+    try {
+      const status = await WallClock.pairingStatus();
+      const missing = !status.pinConfigured;
+      pinStatus.textContent = missing
+        ? "No PIN is set yet, so any phone on the network can pair with this clock. Set one below."
+        : "";
+      pinStatus.classList.toggle("hidden", !missing);
+
+      currentPin = "";
+      if (!missing) {
+        const current = await WallClock.showPairingPIN();
+        currentPin = current.pin || "";
+      }
+      // Never leave a PIN on screen across a refresh — /setup can be open on a
+      // laptop plugged into the projector.
+      pinRevealed = false;
+      renderCurrentPin();
+    } catch (error) {
+      console.error(error);
     }
+  }
+
+  pinRevealBtn.addEventListener("click", () => {
+    pinRevealed = !pinRevealed;
+    renderCurrentPin();
+  });
+
+  setPinBtn.addEventListener("click", async () => {
+    if (!pinInput.value) {
+      pinMessage.textContent = "Type a PIN first.";
+      return;
+    }
+    setPinBtn.disabled = true;
+    pinMessage.textContent = "Saving PIN...";
+    try {
+      await WallClock.setPairingPIN(pinInput.value);
+      pinInput.value = "";
+      pinMessage.textContent = "PIN saved. Phones already paired keep working.";
+      await refreshPinStatus();
+    } catch (error) {
+      console.error(error);
+      pinMessage.textContent = error.message || "Could not save the PIN.";
+    } finally {
+      setPinBtn.disabled = false;
+    }
+  });
+
+  (async () => {
+    // Setup pairs the same way control does. It matters more here: a browser
+    // that never visited /control (or lost its per-origin token to a hostname
+    // change) would otherwise have every save and update fail with a token
+    // error, and setup's writes are the persistent ones.
+    await WallClock.ensurePaired();
+    refreshPinStatus();
     load().catch((error) => {
       console.error(error);
       saveStatus.textContent = "Could not load settings — check the connection and reload.";

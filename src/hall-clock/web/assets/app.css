@@ -123,7 +123,6 @@ textarea {
 }
 
 .display-topline h1,
-.setup-header h1,
 .pair-card h1 {
   margin: 0;
   font-size: clamp(32px, 5vw, 82px);
@@ -904,11 +903,6 @@ textarea {
   grid-template-columns: 1fr;
 }
 
-.secondary-action-row {
-  display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 10px;
-}
 
 /* Stop timer and End meeting only act on a live clock. While idle, Stop keeps
    its slot beside Bell but turns invisible, so tapping Start never shifts the
@@ -924,10 +918,6 @@ textarea {
   display: none;
 }
 
-.secondary-action-row .action {
-  min-height: 44px;
-  font-size: 14px;
-}
 
 .adjust-action {
   display: inline-flex;
@@ -1186,18 +1176,15 @@ textarea {
   padding-bottom: 42px;
 }
 
-.setup-header h1,
 .pair-card h1 {
   font-size: 36px;
 }
 
 .setup-header {
   align-items: center;
+  /* Only the nav is left in here, so keep it on the right where it was. */
+  justify-content: flex-end;
   margin-bottom: 4px;
-}
-
-.setup-header-copy {
-  max-width: 700px;
 }
 
 .setup-nav {
@@ -1597,8 +1584,14 @@ textarea {
   padding-top: 6px;
 }
 
-.form-actions .action-primary {
+/* The setup form's actions hug their text, unlike the control page where the
+   same class is stretched full width. A 999px pill collapses onto its own end
+   caps at that size, and it is the only round thing on a page built from 12px
+   inputs and cards — so square it off to match them and give the label room. */
+.form-actions .action {
   min-height: 52px;
+  padding: 12px 28px;
+  border-radius: 12px;
 }
 
 .pair-page {
@@ -1723,10 +1716,6 @@ textarea {
     font-size: 17px;
   }
 
-  .secondary-action-row .action {
-    min-height: 48px;
-    font-size: 14px;
-  }
 
   .adjust-symbol {
     width: 24px;
@@ -1751,11 +1740,6 @@ textarea {
 @media (max-width: 640px) {
   .setup-shell {
     padding: 12px 10px 22px;
-  }
-
-  .setup-header h1 {
-    font-size: 30px;
-    line-height: 1.08;
   }
 
   .setup-nav {
@@ -1804,7 +1788,6 @@ textarea {
   }
 
   .action,
-  .secondary-action-row .action,
   .primary-action-row .action-primary {
     min-height: 46px;
     font-size: 15px;
@@ -1917,5 +1900,190 @@ textarea {
 
   .adhoc-part-panel > .small-button {
     width: 100%;
+  }
+}
+
+/* Pairing
+   -------
+   The prompt a controller phone shows when it holds no token yet. The hall
+   display is deliberately untouched by any of this — nothing about pairing
+   ever appears on the TV during a meeting. */
+
+.pairing-backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 50;
+  display: grid;
+  place-items: center;
+  padding: 20px;
+  background: rgba(0, 0, 0, 0.72);
+}
+
+.pairing-card {
+  width: min(420px, 100%);
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  padding: 22px;
+  background: var(--card);
+  box-shadow: var(--shadow);
+}
+
+.pairing-card h2 {
+  margin: 4px 0 8px;
+  font-size: 20px;
+}
+
+.pairing-lead {
+  margin: 0 0 16px;
+  color: var(--muted);
+  font-size: 14px;
+}
+
+.pairing-input {
+  width: 100%;
+  box-sizing: border-box;
+  margin-bottom: 14px;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius-sm);
+  padding: 14px;
+  background: var(--inset);
+  color: var(--text);
+  font-size: 30px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.32em;
+  text-align: center;
+}
+
+.pairing-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  align-items: center;
+}
+
+.pairing-actions .action {
+  flex: 1 1 auto;
+}
+
+.pin-current {
+  display: flex;
+  gap: 10px;
+  align-items: center;
+  margin-bottom: 14px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-radius: 12px;
+  background: var(--inset);
+}
+
+.pin-current-label {
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.pin-current-value {
+  flex: 1 1 auto;
+  color: var(--muted);
+  font-size: 18px;
+  font-variant-numeric: tabular-nums;
+  letter-spacing: 0.18em;
+}
+
+.pin-current-value.revealed {
+  color: var(--text);
+  font-weight: 700;
+}
+
+.pin-row {
+  display: flex;
+  gap: 12px;
+  /* The label sits above the input, so aligning on the bottom edge puts the
+     button on exactly the same line as the field it acts on — no magic
+     numbers, whatever the label wraps to. */
+  align-items: flex-end;
+}
+
+.pin-row .field {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+/* .action is 56px tall by default, which towers over a 46px field. Match the
+   input it sits beside — the same override .form-actions already makes. */
+.pin-row .pin-save {
+  flex: 0 0 auto;
+  min-height: 46px;
+  padding: 0 20px;
+  border-radius: 12px;
+  font-size: 15px;
+}
+
+.pin-hint {
+  margin-top: 8px;
+}
+
+/* Empty until an action reports back, so it must not reserve a blank line. */
+.pin-message:empty {
+  display: none;
+}
+
+.pin-message {
+  margin-top: 8px;
+}
+
+/* Side by side leaves the input too narrow to read a PIN in on a phone. */
+@media (max-width: 560px) {
+  .pin-row {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .pin-row .pin-save {
+    width: 100%;
+  }
+}
+
+/* Confirmation window
+   -------------------
+   Every two-tap action arms for ARM_TIMEOUT_MS (control.js) and then quietly
+   disarms. Without a cue, an operator who taps, looks up at the platform, and
+   taps again has re-armed rather than confirmed — twice over, which reads as a
+   dead button. Drain a bar across the control so the window is something you
+   can see closing. Duration must match ARM_TIMEOUT_MS. */
+.action.armed,
+.part-picker-option.armed {
+  position: relative;
+  overflow: hidden;
+}
+
+.action.armed::after,
+.part-picker-option.armed::after {
+  content: "";
+  position: absolute;
+  inset-inline-start: 0;
+  bottom: 0;
+  width: 100%;
+  height: 3px;
+  background: currentColor;
+  opacity: 0.5;
+  animation: arm-drain 5s linear forwards;
+}
+
+@keyframes arm-drain {
+  to {
+    width: 0;
+  }
+}
+
+/* A confirmation the operator cannot see draining is worse than none, but an
+   animation is not the only signal — the label already changed to "Confirm X". */
+@media (prefers-reduced-motion: reduce) {
+  .action.armed::after,
+  .part-picker-option.armed::after {
+    animation: none;
+    opacity: 0.25;
   }
 }

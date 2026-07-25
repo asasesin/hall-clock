@@ -182,6 +182,14 @@ func (s *server) autoImportLoop() {
 			continue
 		}
 
+		// Nothing due, but a language the hall uses may still be missing this
+		// week's items — a start added mid-week, or a workbook that was not
+		// published when the primary import ran. Sweeping here is what makes a
+		// language switch instant rather than a two-fetch wait mid-meeting.
+		if enabled {
+			s.prefetchMidweekLanguages(context.Background(), now)
+		}
+
 		// Cap the sleep: nextCheck can be days away, and config changes (an
 		// operator enabling auto-import mid-week) must not wait for Monday.
 		sleep := time.Until(nextCheck)
@@ -195,7 +203,138 @@ func (s *server) autoImportLoop() {
 // autoImportTick pulls the current week's midweek program. The caller controls
 // the Monday 3:00 AM schedule; this method still guards against duplicate
 // imports and disabled auto-import settings.
+
+// midweekLanguagesInUseLocked lists the distinct languages this hall actually
+// needs, taken from the midweek meeting starts an operator configured, plus
+// whatever is active now. Prefetching the three the UI offers would burn
+// requests on languages nobody here selects.
+func (s *server) midweekLanguagesInUseLocked() []string {
+	seen := map[string]bool{}
+	languages := []string{}
+	add := func(value string) {
+		language := normalizeMidweekLanguage(value)
+		if language == "" || seen[language] {
+			return
+		}
+		seen[language] = true
+		languages = append(languages, language)
+	}
+
+	add(s.config.MidweekLanguage)
+	for _, start := range s.config.MeetingStarts {
+		// Weekend starts run the fixed local template, so they import nothing.
+		if start.Day < int(time.Monday) || start.Day > int(time.Friday) {
+			continue
+		}
+		add(start.Language)
+		add(wolLanguage(start.MidweekURL))
+	}
+	return languages
+}
+
+// midweekLanguageCachedLocked reports whether this week's items for a language
+// are already cached and usable, i.e. whether a switch to it would be instant.
+func (s *server) midweekLanguageCachedLocked(now time.Time, language string) bool {
+	cached, ok := s.config.MidweekLanguageSchedules[language]
+	if !ok || cached.ImportedWeek != isoWeekString(now) || len(cached.Schedule) == 0 {
+		return false
+	}
+	return !s.cachedLanguageScheduleStaleLocked(cached)
+}
+
+// prefetchMidweekLanguages warms the per-language cache for every language the
+// hall uses, so switching language mid-meeting reads from cache instead of
+// making the operator wait on two WOL fetches with the meeting watching.
+//
+// It never changes the active language: that is the difference between this and
+// importMidweekLanguage, which applies what it imports. Each language is stored
+// and persisted on its own, so a failure on the second does not discard the
+// first, and a language whose workbook is not published yet simply stays
+// missing and is retried on the next tick.
+func (s *server) prefetchMidweekLanguages(ctx context.Context, now time.Time) {
+	s.mu.Lock()
+	enabled := s.config.AutoImportMidweek
+	inMeeting := s.currentMidweekMeetingActiveLocked(now)
+	languages := s.midweekLanguagesInUseLocked()
+	missing := languages[:0:0]
+	for _, language := range languages {
+		if !s.midweekLanguageCachedLocked(now, language) {
+			missing = append(missing, language)
+		}
+	}
+	throttled := !s.lastPrefetchSweep.IsZero() && now.Sub(s.lastPrefetchSweep) < time.Hour
+	if enabled && !inMeeting && len(missing) > 0 && !throttled {
+		s.lastPrefetchSweep = now
+	}
+	s.mu.Unlock()
+
+	if !enabled || inMeeting || len(missing) == 0 || throttled {
+		return
+	}
+
+	for _, language := range missing {
+		if err := s.prefetchMidweekLanguage(ctx, now, language); err != nil {
+			log.Printf("auto-import: could not pre-load %s items: %v", languageName(language), err)
+			continue
+		}
+		log.Printf("auto-import: pre-loaded %s items for %s", languageName(language), isoWeekString(now))
+	}
+}
+
+// prefetchMidweekLanguage fetches one language's items for this week and stores
+// them in the cache, leaving the active schedule untouched.
+func (s *server) prefetchMidweekLanguage(ctx context.Context, now time.Time, language string) error {
+	s.mu.Lock()
+	sourceURL, ok := s.midweekLanguageSourceLocked(language)
+	s.mu.Unlock()
+	if !ok {
+		return fmt.Errorf("no source configured for %s", languageName(language))
+	}
+
+	// The stored source points at whichever week it was saved in, so only its
+	// language/library segments are trusted; the date-addressable weekly
+	// meetings page decides which document is this week's.
+	page, err := fetchWOLPageFunc(ctx, weeklyMeetingsURL(sourceURL, now))
+	if err != nil {
+		return err
+	}
+	docURL, ok := findWorkbookDocURL(page)
+	if !ok {
+		return fmt.Errorf("no workbook link on the weekly meetings page")
+	}
+	schedule, err := importMidweekFromURL(ctx, docURL)
+	if err != nil {
+		return err
+	}
+	if err := validateImportedLanguage(language, schedule); err != nil {
+		return err
+	}
+
+	s.mu.Lock()
+	if s.config.MidweekLanguageSources == nil {
+		s.config.MidweekLanguageSources = map[string]string{}
+	}
+	s.config.MidweekLanguageSources[language] = docURL
+	s.storeMidweekLanguageScheduleLocked(language, isoWeekString(now), docURL, schedule)
+	s.mu.Unlock()
+
+	// Persist per language: a partial sweep still leaves the hall better off.
+	if err := s.persistConfig(); err != nil {
+		return fmt.Errorf("could not save %s items: %w", languageName(language), err)
+	}
+	return nil
+}
+
 func (s *server) autoImportTick(ctx context.Context, now time.Time) {
+	s.runPrimaryAutoImport(ctx, now)
+	// Warm the other languages this hall uses. Runs even when the primary
+	// import was not due or failed: once the active language is in for the
+	// week, "due" goes false forever, and a sweep gated on it would never
+	// pre-load the language somebody is about to switch to.
+	s.prefetchMidweekLanguages(ctx, now)
+}
+
+func (s *server) runPrimaryAutoImport(ctx context.Context, now time.Time) {
 	s.mu.Lock()
 	enabled := s.config.AutoImportMidweek
 	source, due := s.nextAutoImportSourceLocked(now)
@@ -302,6 +441,34 @@ func (s *server) storeMidweekLanguageScheduleLocked(language, importedWeek, sour
 		URL:          sourceURL,
 		Schedule:     cached,
 	}
+}
+
+// applyWeekendLanguageLocked switches the language of the weekend programme.
+// That programme is a local template whose two titles come from the language
+// alone (see weekendSchedule), so it needs nothing from WOL — but the switch
+// used to run the midweek path regardless, which meant a Sunday with flaky hall
+// wifi or an unpublished workbook refused the change outright.
+//
+// The midweek baseline is deliberately left alone: this changes what is on
+// screen now, not which workbook the hall imports. The pre-load sweep keeps the
+// midweek cache warm separately.
+func (s *server) applyWeekendLanguageLocked(now time.Time, language string) (Config, State, bool, string) {
+	language = normalizeMidweekLanguage(language)
+	if language == "" {
+		return Config{}, State{}, false, "unsupported language"
+	}
+	if s.state.Status != StatusIdle {
+		return Config{}, State{}, false, "language can only be changed while idle"
+	}
+
+	s.config.MidweekLanguage = language
+	// The operator chose this language; hold that choice for the session so the
+	// idle sync and the import rotation can't silently flip it back.
+	s.config.MidweekLanguageOverrideUntil = now.Add(circuitOverseerDuration)
+	s.state.MidweekLanguage = language
+	s.applyActiveScheduleChangeLocked(now)
+	state := s.snapshotLocked()
+	return s.config, state, true, ""
 }
 
 func (s *server) applyCachedMidweekLanguageScheduleLocked(now time.Time, language string) (Config, State, bool, string) {

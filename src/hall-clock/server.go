@@ -22,7 +22,6 @@ type server struct {
 	talks       []Talk
 	startedAt   time.Time
 	remainingAt int
-	bellSeq     int64
 	subscribers map[chan State]struct{}
 	// saveMu serializes config persistence, and saveSeq/lastSavedSeq stop an
 	// older snapshot from renaming over a newer one when two writers race —
@@ -41,6 +40,28 @@ type server struct {
 	// overtimeSession identifies the meeting the records belong to, so they clear
 	// themselves when the next meeting comes around.
 	overtimeSession time.Time
+	// lastPrefetchSweep throttles retries of the per-language pre-load. A hall
+	// whose second language has no workbook published yet would otherwise be
+	// refetched every loop iteration — four times an hour, forever. A warm
+	// cache costs nothing here: the sweep returns before any network call.
+	lastPrefetchSweep time.Time
+	// pairingUntil is when the current no-PIN window shuts: either the
+	// first-boot grace period or an "add a phone" window a paired controller
+	// opened. Zero means a PIN is required. Not persisted — a reboot with a PIN
+	// set should never come up open.
+	pairingUntil time.Time
+	// pairingOneShot marks a window that a single phone consumes: the "add a
+	// phone" window a paired controller opens deliberately. The first-boot
+	// window is NOT one-shot — it is already bounded by time and by setting a
+	// PIN, and consuming it on the first claim stranded everyone else. That
+	// claim is silent (ensurePaired pairs with no UI), so simply opening the
+	// controller on one origin used to lock the setup page out on another.
+	pairingOneShot bool
+	// pinFailures counts consecutive wrong PINs and pinLockedUntil is when
+	// guessing may resume, so a long-lived PIN cannot be ground down over an
+	// evening. Both reset on a success.
+	pinFailures    int
+	pinLockedUntil time.Time
 	// clock is the time source for all scheduling decisions (meeting-type
 	// switching, stale-part purging, timer elapsed). Defaults to time.Now;
 	// tests override it to pin a specific day so behaviour is deterministic.
@@ -58,7 +79,17 @@ type server struct {
 
 const currentConfigVersion = 1
 
+// newServer builds a server on the wall clock.
 func newServer(configPath string) (*server, error) {
+	return newServerWithClock(configPath, time.Now)
+}
+
+// newServerWithClock builds a server on a caller-supplied time source. The
+// initial state is derived at construction — meeting type, active schedule, CO
+// mode — so a clock set afterwards is already too late to influence it. Tests
+// pin a weekday here: meetingTypeForTime returns "weekend" on Saturday and
+// Sunday, which used to make four tests fail every weekend, CI included.
+func newServerWithClock(configPath string, clock func() time.Time) (*server, error) {
 	config, err := loadConfig(configPath)
 	if err != nil {
 		return nil, err
@@ -128,7 +159,7 @@ func newServer(configPath string) (*server, error) {
 		log.Printf("config: could not persist startup config to %s: %v", configPath, err)
 	}
 
-	now := time.Now()
+	now := clock()
 	coActive := circuitOverseerActive(config.CircuitOverseerExpiresAt, now)
 	activeMeetingType := meetingTypeForTime(now)
 	activeSchedule := scheduleForMeetingType(activeMeetingType, effectiveMidweekSchedule(config, StatusIdle, now), coActive, config.MidweekLanguage)
@@ -155,14 +186,29 @@ func newServer(configPath string) (*server, error) {
 			Schedule:                 activeSchedule,
 			Now:                      now,
 		},
-		talks:             activeSchedule,
-		remainingAt:       first.Duration,
+		talks:       activeSchedule,
+		remainingAt: first.Duration,
+		// With no PIN set there is no way in yet, so open the bootstrap window
+		// for whoever is installing the appliance. It closes on its own, and
+		// setting a PIN closes it early.
+		pairingUntil:      firstBootPairingWindow(config, now),
 		subscribers:       map[chan State]struct{}{},
-		clock:             time.Now,
+		clock:             clock,
 		updateTriggerPath: defaultUpdateTriggerPath,
 		updateStatusPath:  defaultUpdateStatusPath,
 		updates:           &updateChecker{repo: defaultUpdateRepo},
 	}, nil
+}
+
+// firstBootPairingWindow returns how long pairing stays open without a PIN on
+// this start. A configured PIN means the hall is already secured and the
+// window never opens; an unset one means nobody could pair at all otherwise.
+func firstBootPairingWindow(config Config, now time.Time) time.Time {
+	if config.ControlPIN != "" {
+		return time.Time{}
+	}
+	log.Printf("no pairing PIN set: any phone on the network can pair for the next %s — set a PIN in /setup", pairingGrace)
+	return now.Add(pairingGrace)
 }
 
 func (s *server) routes(publicURL string) (*http.ServeMux, error) {
@@ -197,7 +243,11 @@ func (s *server) routes(publicURL string) (*http.ServeMux, error) {
 	mux.HandleFunc("GET /api/update", s.handleUpdateInfo)
 	mux.HandleFunc("POST /api/update", s.protect(s.handleUpdateStart))
 	mux.HandleFunc("GET /api/pairing", s.handlePairing(publicURL))
+	mux.HandleFunc("POST /api/pairing/claim", s.handleClaimPairing(publicURL))
 	mux.HandleFunc("POST /api/pairing/enable", s.protect(s.handleEnablePairing))
+	mux.HandleFunc("GET /api/pairing/verify", s.protect(s.handleVerifyToken))
+	mux.HandleFunc("GET /api/pairing/pin", s.protect(s.handleShowPIN))
+	mux.HandleFunc("POST /api/pairing/pin", s.protect(s.handleSetPIN))
 	mux.HandleFunc("POST /api/control/start", s.protect(s.handleStart))
 	mux.HandleFunc("POST /api/control/pause", s.protect(s.handlePause))
 	mux.HandleFunc("POST /api/control/reset", s.protect(s.handleReset))
@@ -209,7 +259,6 @@ func (s *server) routes(publicURL string) (*http.ServeMux, error) {
 	mux.HandleFunc("POST /api/control/select", s.protect(s.handleSelect))
 	mux.HandleFunc("POST /api/control/adhoc-part", s.protect(s.handleAdhocPart))
 	mux.HandleFunc("POST /api/control/move-part", s.protect(s.handleMovePart))
-	mux.HandleFunc("POST /api/control/bell", s.protect(s.handleBell))
 	mux.HandleFunc("POST /api/control/circuit-overseer", s.protect(s.handleCircuitOverseer))
 	mux.HandleFunc("POST /api/control/midweek-language", s.protect(s.handleMidweekLanguage))
 	mux.HandleFunc("POST /api/config", s.protect(s.handleSaveConfig))
@@ -257,27 +306,191 @@ func (s *server) protect(next http.HandlerFunc) http.HandlerFunc {
 	}
 }
 
+// openPairingLocked opens a window during which a phone may pair without the
+// PIN. Reusing a live window rather than extending it keeps a burst of clicks
+// from holding the door open indefinitely.
+func (s *server) openPairingLocked(now time.Time, window time.Duration, oneShot bool) {
+	if now.Before(s.pairingUntil) {
+		return
+	}
+	s.pairingUntil = now.Add(window)
+	s.pairingOneShot = oneShot
+}
+
+// pairingOpenLocked reports whether pairing currently needs no PIN.
+func (s *server) pairingOpenLocked(now time.Time) bool {
+	return now.Before(s.pairingUntil)
+}
+
 func (s *server) handlePairing(publicURL string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		now := s.clock()
 		s.mu.Lock()
-		token := s.config.ControlToken
 		configuredURL := s.config.AdvertisedBaseURL
+		open := s.pairingOpenLocked(now)
+		pinSet := s.config.ControlPIN != ""
+		expiresAt := s.pairingUntil
 		s.mu.Unlock()
 
+		// The advertised URL carries no token, so a QR printed on a noticeboard
+		// stays valid for years and photographing one grants nothing on its
+		// own — it opens the controller, which then has to pair.
+		body := map[string]any{
+			"controlUrl":    advertisedControlURL(publicURL, configuredURL, r),
+			"pairingOpen":   open,
+			"pinRequired":   !open,
+			"pinConfigured": pinSet,
+		}
+		if open {
+			body["pairingExpiresAt"] = expiresAt
+		}
+		writeJSON(w, body)
+	}
+}
+
+func (s *server) handleClaimPairing(publicURL string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		var body struct {
+			PIN string `json:"pin"`
+		}
+		if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
+			http.Error(w, "invalid JSON body", http.StatusBadRequest)
+			return
+		}
+
+		now := s.clock()
+		s.mu.Lock()
+		open := s.pairingOpenLocked(now)
+		locked := now.Before(s.pinLockedUntil)
+		expected := s.config.ControlPIN
+		if !open && !locked && expected != "" {
+			// Spend the attempt here, in the same critical section that read the
+			// lockout. Counting failures anywhere after this unlock lets a burst
+			// of concurrent guesses all observe an untripped counter and sail
+			// past the cap together — measured at 21 of 40 getting through.
+			s.pinFailures++
+			if s.pinFailures >= maxPINFailures {
+				s.pinFailures = 0
+				s.pinLockedUntil = now.Add(pinLockout)
+			}
+		}
+		s.mu.Unlock()
+
+		if !open {
+			if locked {
+				http.Error(w, "too many wrong PINs; wait a few minutes and try again", http.StatusTooManyRequests)
+				return
+			}
+			if expected == "" {
+				// No PIN set and no window open: the grace period lapsed before
+				// anybody used it. Say so plainly rather than pretend a PIN
+				// exists, or the operator will hunt for one nobody ever chose.
+				http.Error(w, "pairing is closed; restart the clock to reopen the setup window", http.StatusForbidden)
+				return
+			}
+			// The attempt is already spent, so parallel guessing buys nothing.
+			if !pinMatches(expected, strings.TrimSpace(body.PIN)) {
+				http.Error(w, "wrong PIN", http.StatusUnauthorized)
+				return
+			}
+		}
+
+		s.mu.Lock()
+		s.pinFailures = 0
+		s.pinLockedUntil = time.Time{}
+		// An "add a phone" window pairs exactly one phone; leaving it open would
+		// let anyone who noticed it join for the rest of the five minutes. The
+		// first-boot window stays open for its full term, so pairing a phone
+		// does not strand the laptop somebody is about to set the PIN from.
+		if s.pairingOneShot {
+			s.pairingUntil = time.Time{}
+			s.pairingOneShot = false
+		}
+		token := s.config.ControlToken
+		configuredURL := s.config.AdvertisedBaseURL
+		state := s.snapshotLocked()
+		s.mu.Unlock()
+
+		s.broadcast(state)
 		target := advertisedControlURL(publicURL, configuredURL, r)
 		writeJSON(w, map[string]string{
+			"token":      token,
 			"controlUrl": withToken(target, token),
 		})
 	}
 }
 
-func (s *server) handleEnablePairing(w http.ResponseWriter, r *http.Request) {
+// handleSetPIN sets or changes the pairing PIN. It is token-protected, so the
+// caller is an already-paired controller: whoever holds the clock decides who
+// else may hold it. Existing phones keep working — the control token does not
+// change — so a PIN change is not a way to evict a lost phone.
+func (s *server) handleSetPIN(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		PIN string `json:"pin"`
+	}
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 4096)).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+	pin, err := normalizePIN(body.PIN)
+	if err != nil {
+		http.Error(w, err.Error(), http.StatusBadRequest)
+		return
+	}
+	now := s.clock()
 	s.mu.Lock()
+	s.config.ControlPIN = pin
+	s.pinFailures = 0
+	s.pinLockedUntil = time.Time{}
+	// Setting a PIN closes the bootstrap window: the appliance is secured now,
+	// and leaving the door open for the rest of the grace period would undo
+	// exactly what the operator just did.
+	if s.pairingUntil.After(now) {
+		s.pairingUntil = time.Time{}
+	}
+	state := s.snapshotLocked()
+	s.mu.Unlock()
+
+	if err := s.persistConfig(); err != nil {
+		http.Error(w, "could not save the PIN", http.StatusInternalServerError)
+		return
+	}
+	s.broadcast(state)
+	writeJSON(w, map[string]any{"pinConfigured": true})
+}
+
+// handleVerifyToken exists so a browser can ask whether the token it is holding
+// still works. A config reset mints a fresh ControlToken, which leaves every
+// paired phone holding a dead one — and a client that assumes any stored token
+// is good then fails every write with a silent 401 forever.
+func (s *server) handleVerifyToken(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, map[string]any{"ok": true})
+}
+
+// handleShowPIN returns the PIN in force. Token-protected, so the caller is an
+// already-paired controller — somebody who could change the PIN anyway, and who
+// on this appliance already holds full control of the clock. Being able to read
+// it back is what stops a forgotten PIN turning into a reset every few months.
+func (s *server) handleShowPIN(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	pin := s.config.ControlPIN
+	s.mu.Unlock()
+
+	writeJSON(w, map[string]any{"pin": pin, "pinConfigured": pin != ""})
+}
+
+// handleEnablePairing lets a paired controller open a short window so a second
+// phone can join without being told the PIN.
+func (s *server) handleEnablePairing(w http.ResponseWriter, r *http.Request) {
+	now := s.clock()
+	s.mu.Lock()
+	s.openPairingLocked(now, pairingWindow, true)
+	expiresAt := s.pairingUntil
 	state := s.snapshotLocked()
 	s.mu.Unlock()
 
 	s.broadcast(state)
-	writeJSON(w, state)
+	writeJSON(w, map[string]any{"pairingOpen": true, "pairingExpiresAt": expiresAt})
 }
 
 func (s *server) handleEvents(w http.ResponseWriter, r *http.Request) {
@@ -327,12 +540,14 @@ func (s *server) handleEvents(w http.ResponseWriter, r *http.Request) {
 func (s *server) handleQR(publicURL string) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		s.mu.Lock()
-		token := s.config.ControlToken
 		configuredURL := s.config.AdvertisedBaseURL
 		s.mu.Unlock()
 
+		// No token in the QR. A printed code sits on a noticeboard for years,
+		// and a photograph of it must not be a permanent key to the clock: it
+		// points at the controller, which pairs against the display like any
+		// other phone.
 		target := advertisedControlURL(publicURL, configuredURL, r)
-		target = withToken(target, token)
 
 		png, err := qrcode.Encode(target, qrcode.Medium, 512)
 		if err != nil {
@@ -360,8 +575,14 @@ func (s *server) snapshotLocked() State {
 	out.MidweekLanguage = s.config.MidweekLanguage
 	out.ScheduleOverrideExpiresAt = sessionWindowExpiryPtr(s.config.ScheduleOverrideExpiresAt, s.state.Now)
 	out.MeetingOvertimeSeconds = s.meetingOvertimeSecondsLocked(s.state.Now)
-	out.PairingActive = true
+	// Whether a no-PIN window is open, so the setup page can show it. Nothing
+	// secret goes in here: this snapshot is broadcast to every subscriber.
+	out.PairingActive = s.pairingOpenLocked(s.state.Now)
 	out.PairingExpiresAt = nil
+	if out.PairingActive {
+		e := s.pairingUntil
+		out.PairingExpiresAt = &e
+	}
 	return out
 }
 

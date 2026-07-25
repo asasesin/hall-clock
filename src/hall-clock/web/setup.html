@@ -9,9 +9,6 @@
   <body class="setup-page">
     <main class="setup-shell">
       <header class="setup-header">
-        <div class="setup-header-copy">
-          <h1>Hall Clock Settings</h1>
-        </div>
         <nav class="setup-nav">
           <a href="/pair">Pair</a>
           <a href="/control">Control</a>
@@ -63,6 +60,29 @@
             <option value="midweek">Midweek meeting</option>
             <option value="weekend">Weekend meeting</option>
           </select>
+
+          <div class="section-title settings-subsection">
+            <h2>Controller PIN</h2>
+          </div>
+          <p id="pinStatus" class="notice hidden"></p>
+          <div id="pinCurrentRow" class="pin-current hidden">
+            <span class="pin-current-label">Current PIN</span>
+            <span id="pinCurrentValue" class="pin-current-value">••••••</span>
+            <button id="pinRevealBtn" class="small-button" type="button">Show</button>
+          </div>
+          <div class="pin-row">
+            <label class="field">
+              <span>New PIN</span>
+              <input id="pinInput" type="password" inputmode="numeric" autocomplete="new-password"
+                     maxlength="32" placeholder="••••••">
+            </label>
+            <button id="setPinBtn" class="action action-subtle pin-save" type="button">Save PIN</button>
+          </div>
+          <p class="field-hint pin-hint">
+            Each phone enters this once and stays paired afterwards. Six digits
+            or more is worth it — keep a copy somewhere the elders can find.
+          </p>
+          <p id="pinMessage" class="field-hint pin-message"></p>
 
           <div class="section-title settings-subsection">
             <h2>Midweek import</h2>

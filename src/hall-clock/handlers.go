@@ -91,9 +91,10 @@ func (s *server) handleEndMeeting(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, state)
 }
 
-// handleReset is kept on the legacy /api/control/reset route, but the control
-// now means "stop this timer": retire the current item, stage the next schedule
-// item, and leave the timer idle for the operator to start when ready.
+// handleReset backs the legacy /api/control/reset route. The "Stop timer"
+// button it belonged to is gone — it was Next part with a label that claimed
+// otherwise, and pause already lives on the primary button. The route stays as
+// an alias for /api/control/next so existing links and scripts keep working.
 func (s *server) handleReset(w http.ResponseWriter, r *http.Request) {
 	s.changeTalk(w, 1)
 }
@@ -276,17 +277,6 @@ func (s *server) handleMovePart(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, state)
 }
 
-func (s *server) handleBell(w http.ResponseWriter, r *http.Request) {
-	s.mu.Lock()
-	s.bellSeq++
-	s.state.Bell = s.bellSeq
-	state := s.snapshotLocked()
-	s.mu.Unlock()
-
-	s.broadcast(state)
-	writeJSON(w, state)
-}
-
 func (s *server) handleCircuitOverseer(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		On bool `json:"on"`
@@ -343,9 +333,20 @@ func (s *server) handleMidweekLanguage(w http.ResponseWriter, r *http.Request) {
 
 	now := s.clock()
 	s.mu.Lock()
-	_, state, ok, message := s.applyCachedMidweekLanguageScheduleLocked(now, language)
+	// The weekend programme is a local template, so its language switch needs
+	// no workbook at all. Routing it through the midweek path made a Sunday
+	// switch depend on WOL being reachable.
+	weekend := meetingTypeForTime(now) == "weekend"
+	var state State
+	var ok bool
+	var message string
+	if weekend {
+		_, state, ok, message = s.applyWeekendLanguageLocked(now, language)
+	} else {
+		_, state, ok, message = s.applyCachedMidweekLanguageScheduleLocked(now, language)
+	}
 	s.mu.Unlock()
-	if !ok && strings.Contains(message, "not imported for this week yet") {
+	if !weekend && !ok && strings.Contains(message, "not imported for this week yet") {
 		_, state, ok, message = s.importMidweekLanguage(r.Context(), now, language)
 	}
 	if !ok {
