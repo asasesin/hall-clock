@@ -1,10 +1,12 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 )
 
 // The appliance once crash-looped on a Pi nobody could reach: an update
@@ -145,5 +147,101 @@ func TestSaveConfigWritesPrivatePermissions(t *testing.T) {
 	// guarantees it.
 	if perm := info.Mode().Perm(); perm != 0o600 {
 		t.Fatalf("expected 0600 on a file holding the control token, got %v", perm)
+	}
+}
+
+// A Twi workbook cached and served as "English": switching the weekend
+// language moves MidweekLanguage but deliberately not the midweek URL, and
+// load used to file that URL under the weekend's language blindly. The
+// pre-load sweep then imported Twi items as "English", and the next switch to
+// English put them on screen under the wrong label. Loading must drop the
+// mismatched bookkeeping and, once no operator override holds, believe the
+// URL over the label.
+func TestLoadHealsMismatchedLanguageBookkeeping(t *testing.T) {
+	twURL := "https://wol.jw.org/tw/wol/d/r33/lp-tw/202026245"
+	esURL := "https://wol.jw.org/es/wol/d/r4/lp-s/202026245"
+	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	config := Config{
+		Version:         currentConfigVersion,
+		DeviceName:      "Hall Clock",
+		MidweekURL:      twURL,
+		MidweekLanguage: "en",
+		MidweekLanguageSources: map[string]string{
+			"en": twURL,
+			"es": esURL,
+		},
+		MidweekLanguageSchedules: map[string]MidweekLanguageSchedule{
+			"en": {ImportedWeek: "2026-W32", URL: twURL, Schedule: []Talk{{ID: 1, Title: "Nnianim Nsɛm", Duration: 60}}},
+			"es": {ImportedWeek: "2026-W32", URL: esURL, Schedule: []Talk{{ID: 1, Title: "Palabras de introducción", Duration: 60}}},
+		},
+	}
+	path := filepath.Join(t.TempDir(), "config.json")
+	raw, err := json.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	srv, err := newServerWithClock(path, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if source, ok := srv.config.MidweekLanguageSources["en"]; ok {
+		t.Fatalf("expected the Twi source filed under en to be dropped, got %s", source)
+	}
+	if _, ok := srv.config.MidweekLanguageSchedules["en"]; ok {
+		t.Fatal("expected the Twi items cached as en to be dropped")
+	}
+	if srv.config.MidweekLanguageSources["es"] != esURL {
+		t.Fatal("expected the correctly filed Spanish source to survive")
+	}
+	if _, ok := srv.config.MidweekLanguageSchedules["es"]; !ok {
+		t.Fatal("expected the correctly filed Spanish cache to survive")
+	}
+	if srv.config.MidweekLanguage != "tw" {
+		t.Fatalf("expected the label to follow the applied URL, got %q", srv.config.MidweekLanguage)
+	}
+	// The reconciled language's URL is now a trustworthy source.
+	if srv.config.MidweekLanguageSources["tw"] != twURL {
+		t.Fatalf("expected the active URL filed under tw, got %q", srv.config.MidweekLanguageSources["tw"])
+	}
+}
+
+// Inside the override window the label may legitimately disagree with the URL
+// — that is exactly what a weekend language switch looks like — so the label
+// must survive a restart. The poisoned per-language entries still go.
+func TestLoadKeepsOverriddenLanguageLabel(t *testing.T) {
+	twURL := "https://wol.jw.org/tw/wol/d/r33/lp-tw/202026245"
+	now := time.Date(2026, 8, 3, 12, 0, 0, 0, time.UTC)
+	config := Config{
+		Version:                      currentConfigVersion,
+		DeviceName:                   "Hall Clock",
+		MidweekURL:                   twURL,
+		MidweekLanguage:              "en",
+		MidweekLanguageOverrideUntil: now.Add(time.Hour),
+		MidweekLanguageSources:       map[string]string{"en": twURL},
+	}
+	path := filepath.Join(t.TempDir(), "config.json")
+	raw, err := json.Marshal(config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	srv, err := newServerWithClock(path, func() time.Time { return now })
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if srv.config.MidweekLanguage != "en" {
+		t.Fatalf("expected the operator's choice to outlive a restart, got %q", srv.config.MidweekLanguage)
+	}
+	if _, ok := srv.config.MidweekLanguageSources["en"]; ok {
+		t.Fatal("expected the Twi source filed under en to be dropped even during an override")
 	}
 }

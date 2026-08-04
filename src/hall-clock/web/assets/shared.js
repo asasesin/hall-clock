@@ -253,12 +253,119 @@
     return postJSON("/api/pairing/pin", { pin }, { timeoutMs: 15000 });
   }
 
+  // A backgrounded phone cannot hold a connection open: iOS and Android suspend
+  // a hidden tab's timers and sockets, so locking the screen always drops the
+  // stream. That part is not ours to fix. The recovery is:
+  //
+  //   - EventSource retries by itself only while it is CONNECTING. Once it
+  //     reaches CLOSED it is finished, and this used to sit on "reconnecting"
+  //     forever until somebody reloaded the page.
+  //   - Coming back to the foreground should reconnect immediately rather than
+  //     wait out the browser's retry backoff.
+  //   - A blip should not flash the banner. Normal resumes settle in about a
+  //     second, and a notice that cries wolf is one people learn to ignore.
+  const OFFLINE_GRACE_MS = 2000;
+  const RECONNECT_MIN_MS = 1000;
+  // Doubles up to this cap while the server stays away, so a Pi mid-update is
+  // not hammered at 1Hz by every paired phone in the hall.
+  const RECONNECT_MAX_MS = 5000;
+  // The server pushes state every 250ms, so a stream that has been quiet for
+  // this long is dead no matter what readyState claims.
+  const STALE_MS = 1500;
+
   function subscribe(onState, onConnection) {
-    const source = new EventSource("/events");
-    source.addEventListener("open", () => onConnection && onConnection(true));
-    source.addEventListener("error", () => onConnection && onConnection(false));
-    source.addEventListener("state", (event) => onState(JSON.parse(event.data)));
-    return source;
+    let source = null;
+    let offlineTimer = null;
+    let reconnectTimer = null;
+    let reconnectDelay = RECONNECT_MIN_MS;
+    let lastConnectAt = 0;
+    let lastEventAt = 0;
+    let stopped = false;
+
+    function report(online) {
+      if (!onConnection) return;
+      if (online) {
+        clearTimeout(offlineTimer);
+        offlineTimer = null;
+        onConnection(true);
+        return;
+      }
+      if (offlineTimer) return;
+      offlineTimer = setTimeout(() => {
+        offlineTimer = null;
+        onConnection(false);
+      }, OFFLINE_GRACE_MS);
+    }
+
+    function connect() {
+      if (stopped) return;
+      lastConnectAt = Date.now();
+      // Counts as activity: a stream that never opens is caught by its own
+      // error events, and one that opens gets the initial snapshot at once.
+      lastEventAt = lastConnectAt;
+      if (source) source.close();
+      source = new EventSource("/events");
+      source.addEventListener("open", () => {
+        reconnectDelay = RECONNECT_MIN_MS;
+        report(true);
+      });
+      source.addEventListener("state", (event) => {
+        lastEventAt = Date.now();
+        onState(JSON.parse(event.data));
+      });
+      source.addEventListener("error", () => {
+        report(false);
+        // CLOSED means the browser has given up; nothing will retry but us.
+        if (source && source.readyState === EventSource.CLOSED) {
+          scheduleReconnect();
+        }
+      });
+    }
+
+    function scheduleReconnect() {
+      if (stopped || reconnectTimer) return;
+      reconnectTimer = setTimeout(() => {
+        reconnectTimer = null;
+        connect();
+      }, reconnectDelay);
+      reconnectDelay = Math.min(reconnectDelay * 2, RECONNECT_MAX_MS);
+    }
+
+    // Rebuilding the stream the moment the operator looks at their phone again
+    // beats waiting for a socket the OS already killed to notice it is dead.
+    // readyState is no help here: a killed socket can report OPEN until the
+    // browser finally notices, which is exactly the frozen-clock case this
+    // exists to fix — so trust silence, not readyState. A healthy stream has
+    // always spoken within the last STALE_MS.
+    function resume() {
+      if (stopped) return;
+      const fresh = source && source.readyState === EventSource.OPEN && Date.now() - lastEventAt < STALE_MS;
+      if (fresh || Date.now() - lastConnectAt < RECONNECT_MIN_MS) return;
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+      connect();
+    }
+
+    function onVisible() {
+      if (!document.hidden) resume();
+    }
+
+    document.addEventListener("visibilitychange", onVisible);
+    window.addEventListener("pageshow", resume);
+    window.addEventListener("online", resume);
+
+    connect();
+    return {
+      close() {
+        stopped = true;
+        document.removeEventListener("visibilitychange", onVisible);
+        window.removeEventListener("pageshow", resume);
+        window.removeEventListener("online", resume);
+        clearTimeout(offlineTimer);
+        clearTimeout(reconnectTimer);
+        if (source) source.close();
+      },
+    };
   }
 
   function formatTime(seconds) {

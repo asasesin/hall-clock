@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"mime"
 	"net/http"
 	"strings"
 	"sync"
@@ -79,6 +80,15 @@ type server struct {
 
 const currentConfigVersion = 1
 
+func init() {
+	// The OS mime table usually has no entry for .webmanifest, and FileServer
+	// would sniff it as text/plain; browsers want application/manifest+json
+	// for the home-screen install manifests under /assets.
+	if err := mime.AddExtensionType(".webmanifest", "application/manifest+json"); err != nil {
+		panic(err)
+	}
+}
+
 // newServer builds a server on the wall clock.
 func newServer(configPath string) (*server, error) {
 	return newServerWithClock(configPath, time.Now)
@@ -130,7 +140,14 @@ func newServerWithClock(configPath string, clock func() time.Time) (*server, err
 	if config.MidweekLanguageSources == nil {
 		config.MidweekLanguageSources = map[string]string{}
 	}
-	if config.MidweekLanguage != "" && config.MidweekURL != "" {
+	healMidweekLanguageBookkeeping(&config, clock())
+	// File the active URL as its language's source only when the two agree.
+	// They can legitimately disagree: switching the weekend language changes
+	// MidweekLanguage but deliberately leaves the midweek URL alone, and
+	// filing that URL under the weekend's language handed the pre-load sweep
+	// a source that imports the wrong language's items — a Twi workbook
+	// cached and served as "English".
+	if config.MidweekLanguage != "" && wolLanguage(config.MidweekURL) == config.MidweekLanguage {
 		config.MidweekLanguageSources[config.MidweekLanguage] = config.MidweekURL
 	}
 	if config.MidweekLanguage != "" && config.MidweekImportedWeek != "" && len(config.Schedule) > 0 {
@@ -186,7 +203,10 @@ func newServerWithClock(configPath string, clock func() time.Time) (*server, err
 			Schedule:                 activeSchedule,
 			Now:                      now,
 		},
-		talks:       activeSchedule,
+		// A copy, not the baseline itself: activeSchedule can be
+		// config.Schedule, and the runtime talks list must never share a
+		// backing array with the saved programme.
+		talks:       append([]Talk(nil), activeSchedule...),
 		remainingAt: first.Duration,
 		// With no PIN set there is no way in yet, so open the bootstrap window
 		// for whoever is installing the appliance. It closes on its own, and
@@ -257,8 +277,8 @@ func (s *server) routes(publicURL string) (*http.ServeMux, error) {
 	mux.HandleFunc("POST /api/control/adjust", s.protect(s.handleAdjust))
 	mux.HandleFunc("POST /api/control/time", s.protect(s.handleSetTime))
 	mux.HandleFunc("POST /api/control/select", s.protect(s.handleSelect))
+	mux.HandleFunc("POST /api/control/remove-part", s.protect(s.handleRemovePart))
 	mux.HandleFunc("POST /api/control/adhoc-part", s.protect(s.handleAdhocPart))
-	mux.HandleFunc("POST /api/control/move-part", s.protect(s.handleMovePart))
 	mux.HandleFunc("POST /api/control/circuit-overseer", s.protect(s.handleCircuitOverseer))
 	mux.HandleFunc("POST /api/control/midweek-language", s.protect(s.handleMidweekLanguage))
 	mux.HandleFunc("POST /api/config", s.protect(s.handleSaveConfig))

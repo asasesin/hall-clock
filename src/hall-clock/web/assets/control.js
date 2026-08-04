@@ -9,6 +9,7 @@
   const adhocPartBtn = document.getElementById("adhocPartBtn");
   const adhocPartPanel = document.getElementById("adhocPartPanel");
   const adhocPartTitleInput = document.getElementById("adhocPartTitleInput");
+  const adhocPartAfterSelect = document.getElementById("adhocPartAfterSelect");
   const adhocPartMinutesInput = document.getElementById("adhocPartMinutesInput");
   const cancelAdhocPartBtn = document.getElementById("cancelAdhocPartBtn");
   const currentPartTitle = document.getElementById("currentPartTitle");
@@ -16,11 +17,9 @@
   const startBtn = document.getElementById("startBtn");
   const nextBtn = document.getElementById("nextBtn");
   const endBtn = document.getElementById("endBtn");
-  const partPosition = document.getElementById("partPosition");
   const nowPartTitle = document.getElementById("nowPartTitle");
   const meetingOvertime = document.getElementById("meetingOvertime");
   const nextPart = document.getElementById("nextPart");
-  const statusBadge = document.getElementById("statusBadge");
   const coToggle = document.getElementById("coToggle");
   const coHint = document.getElementById("coHint");
   const languageSelect = document.getElementById("languageSelect");
@@ -29,6 +28,7 @@
   let nextArmTimeout = null;
   let endArmTimeout = null;
   let partArmTimeout = null;
+  let coArmTimeout = null;
   let latestStatus = "idle";
   let latestState = null;
   let timerCommandPending = false;
@@ -87,30 +87,19 @@
     startBtn.dataset.status = state.status;
     // Start only starts. Operators here never pause a part — they let it run
     // over and move on — so while the clock is running the button has no job
-    // and goes invisible, keeping its slot so nothing shifts under a thumb.
+    // and its row collapses (see the CSS): Next moves up into the space, and a
+    // stray second tap lands on a control that arms before it acts.
     // "Resume" survives for a paused state reached through the API, which the
     // UI can no longer produce but must not strand anybody in.
     startBtn.classList.toggle("slot-hidden", state.status === "running");
     if (!timerCommandPending) {
       startBtn.textContent = state.status === "paused" ? "Resume" : "Start";
     }
-    // End meeting only acts on a live clock, so while idle it goes invisible
-    // rather than greyed -- but keeps its slot, so tapping Start never shifts
-    // the other buttons under the operator's thumb.
-    const idle = state.status === "idle";
-    endBtn.classList.toggle("slot-hidden", idle);
-    if (idle && endBtn.classList.contains("armed")) {
-      disarmEnd();
-    }
     if (state.status === "idle") {
       disarmPartButtons();
       // No live timer left to protect, so the confirmation is moot.
       disarmNext();
     }
-    statusBadge.textContent = prestart ? "Countdown" : WallClock.statusLabel(state.status);
-    statusBadge.classList.toggle("running", state.status === "running");
-    statusBadge.classList.toggle("paused", state.status === "paused");
-    statusBadge.classList.toggle("prestart", prestart);
     coToggle.setAttribute("aria-checked", state.circuitOverseer ? "true" : "false");
     const appliedLanguage = state.midweekLanguage || languageFromSchedule(state.schedule) || "en";
     lastAppliedLanguage = appliedLanguage;
@@ -131,7 +120,15 @@
     coToggle.title = coToggle.disabled
       ? "Circuit overseer visit — reset the timer to idle to change"
       : "Circuit overseer visit schedule";
-    if (state.circuitOverseer && state.circuitOverseerExpiresAt) {
+    // A confirmation armed on a switch that just locked, or whose flip already
+    // happened from another phone, would apply on a later stray tap.
+    if ((coToggle.disabled || state.circuitOverseer) && coToggle.classList.contains("armed")) {
+      disarmCo();
+    }
+    if (coToggle.classList.contains("armed")) {
+      // The armed hint is the confirmation prompt; a broadcast must not
+      // overwrite it mid-decision.
+    } else if (state.circuitOverseer && state.circuitOverseerExpiresAt) {
       coHint.textContent = `On — turns off automatically around ${WallClock.formatClock(state.circuitOverseerExpiresAt)}`;
       coHint.classList.remove("hidden");
     } else if (coToggle.disabled) {
@@ -145,14 +142,18 @@
 
     const schedule = state.schedule || [];
     const index = schedule.findIndex((talk) => talk.id === state.currentTalkId);
-    partPosition.textContent = prestart ? (state.prestartLabel || "Meeting starts soon") : index >= 0 ? `Item ${index + 1} of ${schedule.length}` : "Schedule";
     // The clock's time belongs to this title; naming it here saves the operator
-    // a glance down at the picker card to learn what is being timed.
-    const nowTitle = index >= 0 ? schedule[index].title : "";
+    // a glance down at the picker card to learn what is being timed. During the
+    // pre-meeting countdown the big number is not timing an item at all, so say
+    // what it *is* counting down to -- that label used to live in the item
+    // counter above, which is gone.
+    const nowTitle = prestart
+      ? state.prestartLabel || "Meeting starts soon"
+      : index >= 0
+        ? schedule[index].title
+        : "";
     nowPartTitle.textContent = nowTitle;
-    // During the pre-meeting countdown the big number is not timing this item,
-    // so the title under it would mislabel the countdown.
-    nowPartTitle.classList.toggle("hidden", nowTitle === "" || prestart);
+    nowPartTitle.classList.toggle("hidden", nowTitle === "");
     const next = index >= 0 ? schedule[index + 1] : undefined;
     nextPart.textContent = next ? `Next: ${next.title}` : "Last item of the meeting";
 
@@ -164,18 +165,32 @@
     meetingOvertime.textContent = showMeetingOvertime ? `Meeting ${WallClock.formatTime(behind)} behind` : "";
     meetingOvertime.classList.toggle("hidden", !showMeetingOvertime);
 
-    // Nothing follows the last item, so the button retires instead of wrapping.
-    // Leave an armed label alone: overwriting it mid-confirmation would drop the
-    // operator's first tap on the next state broadcast.
+    // End meeting belongs to the end of the meeting, not to all of it: it
+    // appears on the final item rather than sitting under the operator's thumb
+    // for the whole programme. Not gated on the clock reaching zero -- a last
+    // item that finishes early would leave no button on screen at all, since
+    // Start is hidden while running and Next has nothing left to advance to.
+    const onFinalItem = !next && !prestart && timing;
+    endBtn.classList.toggle("slot-hidden", !onFinalItem);
+    if (!onFinalItem && endBtn.classList.contains("armed")) {
+      disarmEnd();
+    }
+
+    // Nothing follows the last item, so Next goes away entirely rather than
+    // greying out under a "Meeting complete" label -- a control that looks
+    // tappable and does nothing is worse than no control. End meeting takes its
+    // place. Leave an armed label alone: overwriting it mid-confirmation would
+    // drop the operator's first tap on the next state broadcast.
     const atEnd = !next;
     const busy = timerCommandPending || advancePending;
+    nextBtn.classList.toggle("slot-hidden", atEnd);
     nextBtn.disabled = busy || atEnd;
     endBtn.disabled = busy;
     if (!nextBtn.classList.contains("armed")) {
-      nextBtn.textContent = atEnd ? "Meeting complete" : "Next part";
+      nextBtn.textContent = "Next part";
     }
-    // Stop is the same server action as Next, so it has nothing left to do at
-    // the last item; point the operator at the button that does work there.
+    // A confirmation left armed on a button that just went away would fire the
+    // next time it reappears.
     if (nextBtn.disabled && nextBtn.classList.contains("armed")) {
       disarmNext();
     }
@@ -237,9 +252,30 @@
     closePartPicker();
     adhocPartTitleInput.value = "";
     adhocPartMinutesInput.value = "5";
+    // The operator says where the item goes before it exists — the old flow
+    // dropped it after the current item and left them shuffling it with
+    // arrow buttons afterwards. Defaults to after the current item, which
+    // is where an announcement usually lands.
+    const schedule = (latestState && latestState.schedule) || [];
+    const currentId = latestState && latestState.currentTalkId;
+    adhocPartAfterSelect.innerHTML = "";
+    const startOption = document.createElement("option");
+    startOption.value = "0";
+    startOption.textContent = "Start of meeting";
+    adhocPartAfterSelect.appendChild(startOption);
+    schedule.forEach((talk, index) => {
+      const option = document.createElement("option");
+      option.value = String(talk.id);
+      option.textContent = `${index + 1}. ${talk.title}`;
+      option.selected = talk.id === currentId;
+      adhocPartAfterSelect.appendChild(option);
+    });
     adhocPartPanel.classList.remove("hidden");
     adhocPartBtn.setAttribute("aria-expanded", "true");
-    adhocPartTitleInput.focus();
+    // No auto-focus: on a phone that throws the keyboard over half the
+    // controls, and the defaults ("Additional item", 5 min) mean many
+    // operators only want to tap Add. The keyboard should arrive when the
+    // title is tapped, not before.
   }
 
   function closeAdhocPartPanel() {
@@ -288,20 +324,21 @@
         button.innerHTML = `
           <span class="part-picker-label">
             <span>${index + 1}. ${escapeHTML(talk.title)}</span>
-            ${talk.temporary ? '<span class="part-badge">Ad hoc</span>' : ""}
           </span>
           <strong>${Math.round(talk.durationSeconds / 60)} min</strong>
         `;
         row.appendChild(button);
 
+        // Only the ad-hoc additions are disposable from here; the saved
+        // programme is edited in /setup.
         if (talk.temporary) {
-          const actions = document.createElement("div");
-          actions.className = "part-picker-actions";
-          actions.innerHTML = `
-            <button class="part-picker-move" type="button" data-move-talk-id="${talk.id}" data-move-delta="-1" ${index === 0 ? "disabled" : ""} aria-label="Move ${escapeAttr(talk.title)} earlier">▲</button>
-            <button class="part-picker-move" type="button" data-move-talk-id="${talk.id}" data-move-delta="1" ${index === schedule.length - 1 ? "disabled" : ""} aria-label="Move ${escapeAttr(talk.title)} later">▼</button>
-          `;
-          row.appendChild(actions);
+          const removeButton = document.createElement("button");
+          removeButton.className = "part-picker-remove";
+          removeButton.type = "button";
+          removeButton.dataset.removeTalkId = String(talk.id);
+          removeButton.textContent = "Remove";
+          removeButton.setAttribute("aria-label", `Remove ${talk.title}`);
+          row.appendChild(removeButton);
         }
 
         partPickerList.appendChild(row);
@@ -365,6 +402,14 @@
 
 
 
+  function disarmCo() {
+    clearTimeout(coArmTimeout);
+    coArmTimeout = null;
+    coToggle.classList.remove("armed");
+    // The hint text is left for the next state broadcast to restore: render
+    // rewrites it four times a second whenever the toggle is not armed.
+  }
+
   function disarmEnd() {
     clearTimeout(endArmTimeout);
     endArmTimeout = null;
@@ -372,19 +417,12 @@
     endBtn.textContent = "End meeting";
   }
 
-  // The last item has nothing after it, so the button says so rather than
-  // looping back to the opening comments.
-  function isLastPart(state) {
-    const schedule = (state && state.schedule) || [];
-    if (schedule.length === 0) return true;
-    return schedule[schedule.length - 1].id === state.currentTalkId;
-  }
 
   function disarmNext() {
     clearTimeout(nextArmTimeout);
     nextArmTimeout = null;
     nextBtn.classList.remove("armed");
-    nextBtn.textContent = latestState && isLastPart(latestState) ? "Meeting complete" : "Next part";
+    nextBtn.textContent = "Next part";
   }
 
   function disarmPartButtons() {
@@ -433,11 +471,11 @@
   });
   partPickerBtn.addEventListener("click", togglePartPicker);
   partPickerList.addEventListener("click", (event) => {
-    const moveButton = event.target.closest("[data-move-talk-id]");
-    if (moveButton) {
-      const talkId = Number(moveButton.dataset.moveTalkId);
-      const delta = Number(moveButton.dataset.moveDelta);
-      command("/api/control/move-part", { talkId, delta });
+    const removeButton = event.target.closest("[data-remove-talk-id]");
+    if (removeButton) {
+      guardedPartCommand(removeButton, "Sure?", () => {
+        command("/api/control/remove-part", { talkId: Number(removeButton.dataset.removeTalkId) });
+      });
       return;
     }
     const button = event.target.closest("[data-talk-id]");
@@ -459,7 +497,11 @@
     const title = adhocPartTitleInput.value.trim() || "Additional item";
     const minutes = Math.max(1, Math.min(120, Number(adhocPartMinutesInput.value || 5)));
     closeAdhocPartPanel();
-    command("/api/control/adhoc-part", { title, seconds: minutes * 60 });
+    command("/api/control/adhoc-part", {
+      title,
+      seconds: minutes * 60,
+      afterTalkId: Number(adhocPartAfterSelect.value) || 0,
+    });
   });
   cancelAdhocPartBtn.addEventListener("click", closeAdhocPartPanel);
   document.addEventListener("click", (event) => {
@@ -511,8 +553,19 @@
     disarmNext();
     advanceCommand("/api/control/next");
   });
+  // Turning CO mode on replaces the whole programme, so it arms like End
+  // does rather than flipping on a single tap. Turning it off stays one tap:
+  // undoing a mistaken enable should be quicker than making one.
   coToggle.addEventListener("click", () => {
     const next = !(latestState && latestState.circuitOverseer);
+    if (next && !coToggle.classList.contains("armed")) {
+      coToggle.classList.add("armed");
+      coHint.textContent = "Tap again to apply the circuit overseer schedule.";
+      coHint.classList.remove("hidden");
+      coArmTimeout = setTimeout(disarmCo, ARM_TIMEOUT_MS);
+      return;
+    }
+    disarmCo();
     command("/api/control/circuit-overseer", { on: next });
   });
   if (languageSelect) {
@@ -573,12 +626,70 @@
       command("/api/control/adjust", { deltaSeconds: Number(button.dataset.adjust) });
     });
   });
+  // No page can add itself to a home screen — iOS has no install API at all,
+  // and Android's only works over HTTPS — so the closest thing to auto-install
+  // is saying the right one-tap instruction to the right phone. Shown once,
+  // after pairing: before the PIN it would compete with the prompt that
+  // matters, and a phone already running from its icon needs nothing.
+  function showInstallHint() {
+    const hint = document.getElementById("installHint");
+    const text = document.getElementById("installHintText");
+    const dismiss = document.getElementById("installHintDismiss");
+    if (!hint || !text || !dismiss) return;
+    const DISMISSED_KEY = "wallClockInstallHintDismissed";
+    const standalone = window.matchMedia("(display-mode: standalone)").matches ||
+      window.navigator.standalone === true;
+    let dismissed = false;
+    try {
+      dismissed = localStorage.getItem(DISMISSED_KEY) === "1";
+    } catch {
+      // Storage denied means the dismissal could never stick either; showing
+      // the hint every visit would nag, so treat it as dismissed.
+      dismissed = true;
+    }
+    if (standalone || dismissed) return;
+
+    // iPadOS 13+ masquerades as a Mac, but a Mac with a touch screen isn't one.
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    let message;
+    if (ios) {
+      // Safari never brands its iOS user agent; every other browser does.
+      // Only Safari can add to the home screen, so anywhere else the useful
+      // instruction is the detour, not the destination.
+      const notSafari = /CriOS|FxiOS|EdgiOS|DuckDuckGo|GSA|OPR\/|OPT\//.test(navigator.userAgent);
+      message = notSafari
+        ? `To keep this controller on your home screen, open http://${location.host}/control in Safari, then tap Share and “Add to Home Screen”.`
+        : "Keep this controller one tap away: tap the Share button, then “Add to Home Screen”.";
+    } else if (/SamsungBrowser/.test(navigator.userAgent)) {
+      // Also matches /Android/, so it must be asked first. Samsung Internet
+      // puts its menu at the bottom and names the entry differently.
+      message = "Keep this controller one tap away: tap the ☰ menu, then “Add page to” and “Home screen”.";
+    } else if (/Android/.test(navigator.userAgent)) {
+      message = "Keep this controller one tap away: open the browser menu (⋮), then “Add to Home Screen”.";
+    } else {
+      // A laptop has no home screen worth pitching.
+      return;
+    }
+    text.textContent = message;
+    hint.classList.remove("hidden");
+    dismiss.addEventListener("click", () => {
+      try {
+        localStorage.setItem(DISMISSED_KEY, "1");
+      } catch {
+        // Hiding for this visit is all that's possible without storage.
+      }
+      hint.classList.add("hidden");
+    });
+  }
+
   async function init() {
     // A printed, tokenless QR (http://hallclock.local/control) lands here with
     // no token, so ask for the hall PIN. This blocks until the operator pairs —
     // a controller whose every button returns 401 is worse than one that says
     // plainly what it needs.
     await WallClock.ensurePaired();
+    showInstallHint();
     WallClock.subscribe(render, (online) => {
       offlineNotice.classList.toggle("hidden", online);
     });

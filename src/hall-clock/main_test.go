@@ -798,11 +798,179 @@ func TestAdhocPartAddsTemporaryPartWithoutSavingConfig(t *testing.T) {
 	if len(state.Schedule) != runtimeScheduleLength+1 {
 		t.Fatalf("expected one temporary part, got %d parts", len(state.Schedule))
 	}
-	if state.CurrentTalkTitle != "Local announcement" || state.DurationSeconds != 420 {
-		t.Fatalf("expected idle timer to select temporary part, got %q for %ds", state.CurrentTalkTitle, state.DurationSeconds)
+	// Adding never steals the clock: what was lined up stays lined up, and
+	// the new item lands after it (the no-position legacy default).
+	if state.CurrentTalkTitle != "Opening Comments" {
+		t.Fatalf("expected the selection to stay put, got %q", state.CurrentTalkTitle)
+	}
+	if state.Schedule[1].Title != "Local announcement" || !state.Schedule[1].Temporary {
+		t.Fatalf("expected the temporary part right after the current item, got %+v", state.Schedule)
 	}
 	if len(srv.config.Schedule) != savedScheduleLength {
 		t.Fatalf("expected saved schedule to stay at %d parts, got %d", savedScheduleLength, len(srv.config.Schedule))
+	}
+}
+
+// The runtime talks list must never share a backing array with the saved
+// programme. It used to at boot, and inserting an ad-hoc part shifted the
+// shared array in place, writing the temporary part into config.Schedule —
+// the idle reconciler then saw baseline and talks disagree forever and
+// re-merged one more copy of the part on every tick, hundreds within minutes.
+// The JSON round-trip matters: a decoded slice has spare capacity, which is
+// what let the in-place shift land in the shared array instead of forcing a
+// reallocation.
+func TestAdhocInsertNeverTouchesTheSavedProgramme(t *testing.T) {
+	seed := Config{
+		Version:    currentConfigVersion,
+		DeviceName: "Hall Clock",
+		Schedule: []Talk{
+			{ID: 1, Title: "Opening Comments", Duration: 60},
+			{ID: 2, Title: "Spiritual Gems", Duration: 600},
+			{ID: 3, Title: "Bible Reading", Duration: 240},
+			{ID: 4, Title: "Concluding Comments", Duration: 180},
+		},
+	}
+	path := filepath.Join(t.TempDir(), "config.json")
+	raw, err := json.Marshal(seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv, err := newServer(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux, err := srv.routes("")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/control/adhoc-part", strings.NewReader(`{"title":"Review","seconds":300,"afterTalkId":0}`))
+	req.Header.Set("X-Wall-Clock-Token", srv.config.ControlToken)
+	res := httptest.NewRecorder()
+	mux.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("adhoc add failed: %d %s", res.Code, res.Body.String())
+	}
+
+	// The reconciler runs inside every snapshot; a few of them stand in for
+	// the 4 Hz broadcast tick.
+	for i := 0; i < 5; i++ {
+		srv.snapshot()
+	}
+
+	temps := 0
+	for _, talk := range srv.talks {
+		if talk.Temporary {
+			temps++
+		}
+	}
+	if temps != 1 {
+		t.Fatalf("expected exactly one temporary part after reconciling, got %d", temps)
+	}
+	for _, talk := range srv.config.Schedule {
+		if talk.Temporary || talk.Title == "Review" {
+			t.Fatalf("temporary part leaked into the saved programme: %+v", srv.config.Schedule)
+		}
+	}
+}
+
+// A mistyped or no-longer-needed ad-hoc item can be removed from the picker.
+// Saved programme items cannot — those are edited in /setup — and the item
+// the clock is actively timing is protected until the timer is idle.
+func TestRemovePartDisposesOfTemporaryItemsOnly(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux, err := srv.routes("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	do := func(path, body string, want int) State {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.Header.Set("X-Wall-Clock-Token", srv.config.ControlToken)
+		res := httptest.NewRecorder()
+		mux.ServeHTTP(res, req)
+		if res.Code != want {
+			t.Fatalf("%s returned %d (want %d): %s", path, res.Code, want, res.Body.String())
+		}
+		var state State
+		if want == http.StatusOK {
+			if err := json.Unmarshal(res.Body.Bytes(), &state); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return state
+	}
+
+	savedID := srv.talks[0].ID
+	do("/api/control/remove-part", fmt.Sprintf(`{"talkId":%d}`, savedID), http.StatusConflict)
+
+	before := len(srv.talks)
+	added := do("/api/control/adhoc-part", `{"talkId":0,"title":"Announcements","seconds":300,"afterTalkId":0}`, http.StatusOK)
+	tempID := added.Schedule[0].ID
+	if !added.Schedule[0].Temporary {
+		t.Fatalf("expected a temporary part at the start, got %+v", added.Schedule[0])
+	}
+
+	removed := do("/api/control/remove-part", fmt.Sprintf(`{"talkId":%d}`, tempID), http.StatusOK)
+	if len(removed.Schedule) != before {
+		t.Fatalf("expected the schedule back at %d parts, got %d", before, len(removed.Schedule))
+	}
+
+	// Removing the item the clock points at (while idle) hands the selection
+	// to the item now in its slot instead of leaving it dangling.
+	added = do("/api/control/adhoc-part", `{"title":"Note","seconds":120,"afterTalkId":0}`, http.StatusOK)
+	tempID = added.Schedule[0].ID
+	do("/api/control/select", fmt.Sprintf(`{"talkId":%d}`, tempID), http.StatusOK)
+	after := do("/api/control/remove-part", fmt.Sprintf(`{"talkId":%d}`, tempID), http.StatusOK)
+	if after.CurrentTalkID != after.Schedule[0].ID {
+		t.Fatalf("expected the selection to land on the first item, got %d", after.CurrentTalkID)
+	}
+}
+
+// The operator chooses the position before the item exists: 0 pins it to the
+// start of the meeting, a talk id puts it right after that item, and either
+// way the clock's selection stays wherever it was.
+func TestAdhocPartHonoursChosenPosition(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux, err := srv.routes("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	do := func(path, body string) State {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.Header.Set("X-Wall-Clock-Token", srv.config.ControlToken)
+		res := httptest.NewRecorder()
+		mux.ServeHTTP(res, req)
+		if res.Code != http.StatusOK {
+			t.Fatalf("%s returned %d: %s", path, res.Code, res.Body.String())
+		}
+		var state State
+		if err := json.Unmarshal(res.Body.Bytes(), &state); err != nil {
+			t.Fatal(err)
+		}
+		return state
+	}
+
+	secondID := srv.talks[1].ID
+	afterSecond := do("/api/control/adhoc-part", fmt.Sprintf(`{"title":"After second","seconds":300,"afterTalkId":%d}`, secondID))
+	if afterSecond.Schedule[2].Title != "After second" {
+		t.Fatalf("expected the item right after the chosen one, got %+v", afterSecond.Schedule)
+	}
+
+	atStart := do("/api/control/adhoc-part", `{"title":"Welcome","seconds":120,"afterTalkId":0}`)
+	if atStart.Schedule[0].Title != "Welcome" {
+		t.Fatalf("expected the item at the start of the meeting, got %+v", atStart.Schedule)
+	}
+	if atStart.CurrentTalkTitle != "Opening Comments" {
+		t.Fatalf("expected the selection to stay put, got %q", atStart.CurrentTalkTitle)
 	}
 }
 
@@ -966,68 +1134,6 @@ func TestSaveConfigUpdatesRunningCurrentDurationWithStaleMeetingType(t *testing.
 	}
 	if res.Schedule[0].Duration != 120 {
 		t.Fatalf("expected control schedule to reflect edited minutes, got %+v", res.Schedule[0])
-	}
-}
-
-func TestMoveRejectsSavedScheduleParts(t *testing.T) {
-	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	mux, err := srv.routes("")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	req := httptest.NewRequest(http.MethodPost, "/api/control/move-part", strings.NewReader(`{"talkId":1,"delta":1}`))
-	req.Header.Set("X-Wall-Clock-Token", srv.config.ControlToken)
-	res := httptest.NewRecorder()
-	mux.ServeHTTP(res, req)
-
-	if res.Code != http.StatusConflict {
-		t.Fatalf("expected conflict when moving saved schedule part, got %d: %s", res.Code, res.Body.String())
-	}
-}
-
-func TestMoveTemporaryPartReordersRuntimeSchedule(t *testing.T) {
-	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	mux, err := srv.routes("")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	do := func(path, body string) State {
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
-		req.Header.Set("X-Wall-Clock-Token", srv.config.ControlToken)
-		res := httptest.NewRecorder()
-		mux.ServeHTTP(res, req)
-		if res.Code != http.StatusOK {
-			t.Fatalf("%s returned %d: %s", path, res.Code, res.Body.String())
-		}
-		var state State
-		if err := json.Unmarshal(res.Body.Bytes(), &state); err != nil {
-			t.Fatal(err)
-		}
-		return state
-	}
-
-	added := do("/api/control/adhoc-part", `{"title":"Temporary note","seconds":300}`)
-	tempID := added.CurrentTalkID
-
-	movedUp := do("/api/control/move-part", fmt.Sprintf(`{"talkId":%d,"delta":-1}`, tempID))
-	if movedUp.Schedule[0].ID != tempID {
-		t.Fatalf("expected temp part to move to the front, got %+v", movedUp.Schedule)
-	}
-	if !movedUp.Schedule[0].Temporary {
-		t.Fatal("expected moved part to remain marked temporary")
-	}
-
-	movedDown := do("/api/control/move-part", fmt.Sprintf(`{"talkId":%d,"delta":1}`, tempID))
-	if len(movedDown.Schedule) < 2 || movedDown.Schedule[1].ID != tempID {
-		t.Fatalf("expected temp part to move back after the first part, got %+v", movedDown.Schedule)
 	}
 }
 
@@ -1264,7 +1370,15 @@ func TestAutoImportTickSkipsWhenDisabledOrCurrent(t *testing.T) {
 	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
 	before := srv.snapshot().Schedule
 
-	// Disabled: must not touch anything (would fail on network in CI otherwise).
+	// The enabled tick legitimately sweeps every offered language, so play an
+	// offline hall: nothing fetched may mean anything changed.
+	originalFetch := fetchWOLPageFunc
+	fetchWOLPageFunc = func(ctx context.Context, sourceURL string) (string, error) {
+		return "", fmt.Errorf("offline: %s", sourceURL)
+	}
+	defer func() { fetchWOLPageFunc = originalFetch }()
+
+	// Disabled: must not touch anything.
 	srv.mu.Lock()
 	srv.config.AutoImportMidweek = false
 	srv.mu.Unlock()

@@ -193,6 +193,11 @@ func (s *server) handleAdhocPart(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Title   string `json:"title"`
 		Seconds int    `json:"seconds"`
+		// AfterTalkID is where the operator chose to put the item: 0 means
+		// the start of the meeting, a talk id means right after that item.
+		// Absent falls back to after the current item, which keeps an older
+		// controller page working across an update.
+		AfterTalkID *int `json:"afterTalkId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
@@ -206,10 +211,25 @@ func (s *server) handleAdhocPart(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.Lock()
 	insertAt := len(s.talks)
-	for i, talk := range s.talks {
-		if talk.ID == s.state.CurrentTalkID {
-			insertAt = i + 1
-			break
+	switch {
+	case body.AfterTalkID == nil:
+		for i, talk := range s.talks {
+			if talk.ID == s.state.CurrentTalkID {
+				insertAt = i + 1
+				break
+			}
+		}
+	case *body.AfterTalkID == 0:
+		insertAt = 0
+	default:
+		// An id that vanished between the broadcast and the tap lands the
+		// item at the end rather than failing a request whose form the
+		// operator has already dismissed.
+		for i, talk := range s.talks {
+			if talk.ID == *body.AfterTalkID {
+				insertAt = i + 1
+				break
+			}
 		}
 	}
 	nextID := 1
@@ -217,11 +237,21 @@ func (s *server) handleAdhocPart(w http.ResponseWriter, r *http.Request) {
 		nextID = max(nextID, talk.ID+1)
 	}
 	part := Talk{ID: nextID, Title: title, Duration: seconds, Closing: min(60, seconds), Temporary: true, CreatedAt: s.clock()}
-	s.talks = append(s.talks, Talk{})
-	copy(s.talks[insertAt+1:], s.talks[insertAt:])
-	s.talks[insertAt] = part
+	// A fresh slice, never an in-place shift: s.talks can share its backing
+	// array with the saved programme (the boot path hands the baseline over
+	// as-is), and shifting in place wrote the temporary part into
+	// config.Schedule — which the idle reconciler then re-merged, one more
+	// copy per tick, until the picker was a wall of duplicates.
+	talks := make([]Talk, 0, len(s.talks)+1)
+	talks = append(talks, s.talks[:insertAt]...)
+	talks = append(talks, part)
+	talks = append(talks, s.talks[insertAt:]...)
+	s.talks = talks
 	s.state.Schedule = s.talks
-	if s.state.Status == StatusIdle {
+	// The operator said where the item goes; jumping the clock's selection
+	// there as well made adding a later item hijack what was lined up. Only
+	// a schedule with nothing selected adopts the new item.
+	if s.state.Status == StatusIdle && s.state.CurrentTalkID == 0 {
 		s.selectTalkLocked(part.ID)
 	}
 	state := s.snapshotLocked()
@@ -231,17 +261,12 @@ func (s *server) handleAdhocPart(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, state)
 }
 
-func (s *server) handleMovePart(w http.ResponseWriter, r *http.Request) {
+func (s *server) handleRemovePart(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		TalkID int `json:"talkId"`
-		Delta  int `json:"delta"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
-		return
-	}
-	if body.Delta != -1 && body.Delta != 1 {
-		http.Error(w, "delta must be -1 or 1", http.StatusBadRequest)
 		return
 	}
 
@@ -258,18 +283,32 @@ func (s *server) handleMovePart(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "talk not found", http.StatusNotFound)
 		return
 	}
+	// The saved programme is edited in /setup; only the ad-hoc additions are
+	// disposable from the controller.
 	if !s.talks[idx].Temporary {
 		s.mu.Unlock()
-		http.Error(w, "only temporary items can be moved here", http.StatusConflict)
+		http.Error(w, "only temporary items can be removed here", http.StatusConflict)
 		return
 	}
-	next := idx + body.Delta
-	if next < 0 || next >= len(s.talks) {
+	if s.talks[idx].ID == s.state.CurrentTalkID && s.state.Status != StatusIdle {
 		s.mu.Unlock()
-		http.Error(w, "cannot move item further", http.StatusConflict)
+		http.Error(w, "cannot remove the item on the clock", http.StatusConflict)
 		return
 	}
-	s.talks[idx], s.talks[next] = s.talks[next], s.talks[idx]
+	removedCurrent := s.talks[idx].ID == s.state.CurrentTalkID
+	// Fresh slice for the same reason as in handleAdhocPart: an in-place
+	// shift would rewrite a backing array possibly shared with the saved
+	// programme.
+	talks := make([]Talk, 0, len(s.talks)-1)
+	talks = append(talks, s.talks[:idx]...)
+	talks = append(talks, s.talks[idx+1:]...)
+	s.talks = talks
+	s.state.Schedule = s.talks
+	if removedCurrent && len(s.talks) > 0 {
+		// The item the clock pointed at is gone; point at the one that now
+		// holds its slot in the programme (or the new last item).
+		s.selectTalkLocked(s.talks[min(idx, len(s.talks)-1)].ID)
+	}
 	state := s.snapshotLocked()
 	s.mu.Unlock()
 
@@ -607,6 +646,12 @@ func (s *server) handleImportMidweek(w http.ResponseWriter, r *http.Request) {
 			s.config.MidweekLanguageSources = map[string]string{}
 		}
 		s.config.MidweekLanguageSources[language] = sourceURL
+	} else {
+		// A URL whose language cannot be read still imports fine, but the
+		// previous language must not claim its schedule: the per-language
+		// cache store below files under MidweekLanguage, and a stale value
+		// would label these items as a language they are not.
+		s.config.MidweekLanguage = ""
 	}
 	importedWeek := isoWeekString(s.clock())
 	s.config.MidweekImportedWeek = importedWeek
