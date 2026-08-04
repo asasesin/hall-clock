@@ -25,7 +25,7 @@ const (
 	defaultUpdateTriggerPath = "/var/lib/hall-clock/update-requested"
 	defaultUpdateStatusPath  = "/var/lib/hall-clock/update-status.json"
 
-	defaultUpdateRepo = "asasesin/hall-clock"
+	defaultUpdateRepo = "nuxcor/hall-clock"
 
 	// updateCheckTTL caps how often we ask GitHub for the latest tag. The setup
 	// page asks on every load, and the API is rate-limited per IP.

@@ -28,7 +28,7 @@ TRIGGER="${STATE_DIR}/update-requested"
 STATUS="${STATE_DIR}/update-status.json"
 SOCKET="/run/hall-clock/app.sock"
 SERVICE="hall-clock.service"
-REPO="asasesin/hall-clock"
+REPO="nuxcor/hall-clock"
 ENV_FILE="/etc/hall-clock/update.env"
 LOCK="${STATE_DIR}/update.lock"
 UNIT_DIR="/etc/systemd/system"
@@ -119,7 +119,8 @@ asset_for_arch() {
 }
 
 latest_tag() {
-  curl -fsS --max-time 20 "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null |
+  # -L: a renamed repo answers with a redirect whose body has no tag_name.
+  curl -fsSL --max-time 20 "https://api.github.com/repos/${REPO}/releases/latest" 2>/dev/null |
     sed -n 's/.*"tag_name": *"\([^"]*\)".*/\1/p' |
     head -1 || true
 }
