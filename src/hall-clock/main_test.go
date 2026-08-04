@@ -1264,7 +1264,15 @@ func TestAutoImportTickSkipsWhenDisabledOrCurrent(t *testing.T) {
 	now := time.Date(2026, 7, 7, 12, 0, 0, 0, time.UTC)
 	before := srv.snapshot().Schedule
 
-	// Disabled: must not touch anything (would fail on network in CI otherwise).
+	// The enabled tick legitimately sweeps every offered language, so play an
+	// offline hall: nothing fetched may mean anything changed.
+	originalFetch := fetchWOLPageFunc
+	fetchWOLPageFunc = func(ctx context.Context, sourceURL string) (string, error) {
+		return "", fmt.Errorf("offline: %s", sourceURL)
+	}
+	defer func() { fetchWOLPageFunc = originalFetch }()
+
+	// Disabled: must not touch anything.
 	srv.mu.Lock()
 	srv.config.AutoImportMidweek = false
 	srv.mu.Unlock()

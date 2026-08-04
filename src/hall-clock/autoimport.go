@@ -21,6 +21,11 @@ var defaultMidweekLanguageSources = map[string]string{
 	"tw": "https://wol.jw.org/tw/wol/d/r33/lp-tw/202026241",
 }
 
+// Every language the controller offers, in the order the sweep tries them.
+// Each has a default source above, so all of them resolve even on a hall that
+// never imported anything.
+var supportedMidweekLanguages = []string{"en", "es", "tw"}
+
 var fetchWOLPageFunc = fetchWOLPage
 
 func importMidweekFromURL(ctx context.Context, sourceURL string) ([]Talk, error) {
@@ -182,10 +187,11 @@ func (s *server) autoImportLoop() {
 			continue
 		}
 
-		// Nothing due, but a language the hall uses may still be missing this
-		// week's items — a start added mid-week, or a workbook that was not
-		// published when the primary import ran. Sweeping here is what makes a
-		// language switch instant rather than a two-fetch wait mid-meeting.
+		// Nothing due, but an offered language may still be missing this
+		// week's items — a workbook that was not published when the primary
+		// import ran, or one the hall has simply never selected. Sweeping here
+		// is what makes a language switch instant rather than a two-fetch wait
+		// mid-meeting.
 		if enabled {
 			s.prefetchMidweekLanguages(context.Background(), now)
 		}
@@ -204,34 +210,6 @@ func (s *server) autoImportLoop() {
 // the Monday 3:00 AM schedule; this method still guards against duplicate
 // imports and disabled auto-import settings.
 
-// midweekLanguagesInUseLocked lists the distinct languages this hall actually
-// needs, taken from the midweek meeting starts an operator configured, plus
-// whatever is active now. Prefetching the three the UI offers would burn
-// requests on languages nobody here selects.
-func (s *server) midweekLanguagesInUseLocked() []string {
-	seen := map[string]bool{}
-	languages := []string{}
-	add := func(value string) {
-		language := normalizeMidweekLanguage(value)
-		if language == "" || seen[language] {
-			return
-		}
-		seen[language] = true
-		languages = append(languages, language)
-	}
-
-	add(s.config.MidweekLanguage)
-	for _, start := range s.config.MeetingStarts {
-		// Weekend starts run the fixed local template, so they import nothing.
-		if start.Day < int(time.Monday) || start.Day > int(time.Friday) {
-			continue
-		}
-		add(start.Language)
-		add(wolLanguage(start.MidweekURL))
-	}
-	return languages
-}
-
 // midweekLanguageCachedLocked reports whether this week's items for a language
 // are already cached and usable, i.e. whether a switch to it would be instant.
 func (s *server) midweekLanguageCachedLocked(now time.Time, language string) bool {
@@ -243,8 +221,14 @@ func (s *server) midweekLanguageCachedLocked(now time.Time, language string) boo
 }
 
 // prefetchMidweekLanguages warms the per-language cache for every language the
-// hall uses, so switching language mid-meeting reads from cache instead of
-// making the operator wait on two WOL fetches with the meeting watching.
+// controller offers, so switching language mid-meeting reads from cache instead
+// of making the operator wait on two WOL fetches with the meeting watching.
+//
+// Every offered language, not just the ones this hall configured: the switches
+// that cannot be predicted from config — a visiting group, a one-off foreign
+// talk — are exactly the ones that used to stall. At three languages the whole
+// sweep costs at most six requests a week, and the throttle below caps the
+// price of the ones that fail.
 //
 // It never changes the active language: that is the difference between this and
 // importMidweekLanguage, which applies what it imports. Each language is stored
@@ -255,9 +239,8 @@ func (s *server) prefetchMidweekLanguages(ctx context.Context, now time.Time) {
 	s.mu.Lock()
 	enabled := s.config.AutoImportMidweek
 	inMeeting := s.currentMidweekMeetingActiveLocked(now)
-	languages := s.midweekLanguagesInUseLocked()
-	missing := languages[:0:0]
-	for _, language := range languages {
+	missing := []string{}
+	for _, language := range supportedMidweekLanguages {
 		if !s.midweekLanguageCachedLocked(now, language) {
 			missing = append(missing, language)
 		}
@@ -327,7 +310,7 @@ func (s *server) prefetchMidweekLanguage(ctx context.Context, now time.Time, lan
 
 func (s *server) autoImportTick(ctx context.Context, now time.Time) {
 	s.runPrimaryAutoImport(ctx, now)
-	// Warm the other languages this hall uses. Runs even when the primary
+	// Warm the other offered languages. Runs even when the primary
 	// import was not due or failed: once the active language is in for the
 	// week, "due" goes false forever, and a sweep gated on it would never
 	// pre-load the language somebody is about to switch to.

@@ -14,9 +14,11 @@ import (
 
 // A hall running two congregations off one box switches language between
 // meetings. Before the pre-load that switch cost two live WOL fetches with the
-// meeting waiting; the point of the sweep is that the second language is
-// already cached, so the switch is served from config.
-func TestPrefetchWarmsEveryLanguageInMeetingStarts(t *testing.T) {
+// meeting waiting; the point of the sweep is that every offered language is
+// already cached, so any switch is served from config — including one to a
+// language no configured start uses, which is exactly the switch nobody can
+// predict (a visiting group, a one-off foreign talk).
+func TestPrefetchWarmsEveryOfferedLanguage(t *testing.T) {
 	now := time.Date(2026, 7, 8, 9, 0, 0, 0, time.UTC) // Wednesday morning, no meeting running
 	srv, err := newServerWithClock(filepath.Join(t.TempDir(), "config.json"), func() time.Time { return now })
 	if err != nil {
@@ -29,11 +31,10 @@ func TestPrefetchWarmsEveryLanguageInMeetingStarts(t *testing.T) {
 
 	srv.config.AutoImportMidweek = true
 	srv.config.MidweekLanguage = "en"
+	// No start mentions Spanish anywhere: it must be warmed regardless.
 	srv.config.MeetingStarts = []MeetingStart{
 		{ID: 1, Day: 2, Time: "19:00", Language: "en"},
 		{ID: 2, Day: 4, Time: "19:00", Language: "tw"},
-		// A weekend start runs the fixed local template and must not be fetched.
-		{ID: 3, Day: 0, Time: "10:00", Language: "es"},
 	}
 
 	fetched := map[string]int{}
@@ -62,9 +63,17 @@ func TestPrefetchWarmsEveryLanguageInMeetingStarts(t *testing.T) {
 				<p>Kyerɛw kronkron akenkan (4 min.)</p>
 				<p>Awiei nsɛm (1 min.)</p>
 			`, nil
-		case strings.Contains(sourceURL, "/es/"):
+		case strings.Contains(sourceURL, "/es/wol/meetings/"):
 			fetched["es"]++
-			return "", fmt.Errorf("weekend language must not be pre-loaded: %s", sourceURL)
+			return `<a href="/es/wol/d/r4/lp-s/202026333">Guía de actividades</a>`, nil
+		case strings.Contains(sourceURL, "/es/wol/d/r4/lp-s/202026333"):
+			return `
+				<h2>6-12 de julio</h2>
+				<p>Palabras de introducción (1 min.)</p>
+				<p>Busquemos perlas escondidas (10 min.)</p>
+				<p>Lectura de la Biblia (4 min.)</p>
+				<p>Palabras de conclusión (3 min.)</p>
+			`, nil
 		default:
 			return "", fmt.Errorf("unexpected URL: %s", sourceURL)
 		}
@@ -81,8 +90,11 @@ func TestPrefetchWarmsEveryLanguageInMeetingStarts(t *testing.T) {
 	if !twCached {
 		t.Fatal("expected the second congregation's Twi items to be pre-loaded")
 	}
-	if esCached || fetched["es"] > 0 {
-		t.Fatal("expected the weekend start's language to be left alone")
+	if !esCached {
+		t.Fatal("expected Spanish to be pre-loaded even with no Spanish start configured")
+	}
+	if fetched["es"] != 1 {
+		t.Fatalf("expected exactly one Spanish weekly-page fetch, got %d", fetched["es"])
 	}
 
 	// The switch must now be served from cache — no further network at all.
