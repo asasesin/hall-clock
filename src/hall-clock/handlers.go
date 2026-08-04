@@ -237,9 +237,16 @@ func (s *server) handleAdhocPart(w http.ResponseWriter, r *http.Request) {
 		nextID = max(nextID, talk.ID+1)
 	}
 	part := Talk{ID: nextID, Title: title, Duration: seconds, Closing: min(60, seconds), Temporary: true, CreatedAt: s.clock()}
-	s.talks = append(s.talks, Talk{})
-	copy(s.talks[insertAt+1:], s.talks[insertAt:])
-	s.talks[insertAt] = part
+	// A fresh slice, never an in-place shift: s.talks can share its backing
+	// array with the saved programme (the boot path hands the baseline over
+	// as-is), and shifting in place wrote the temporary part into
+	// config.Schedule — which the idle reconciler then re-merged, one more
+	// copy per tick, until the picker was a wall of duplicates.
+	talks := make([]Talk, 0, len(s.talks)+1)
+	talks = append(talks, s.talks[:insertAt]...)
+	talks = append(talks, part)
+	talks = append(talks, s.talks[insertAt:]...)
+	s.talks = talks
 	s.state.Schedule = s.talks
 	// The operator said where the item goes; jumping the clock's selection
 	// there as well made adding a later item hijack what was lined up. Only
@@ -289,7 +296,13 @@ func (s *server) handleRemovePart(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	removedCurrent := s.talks[idx].ID == s.state.CurrentTalkID
-	s.talks = append(s.talks[:idx], s.talks[idx+1:]...)
+	// Fresh slice for the same reason as in handleAdhocPart: an in-place
+	// shift would rewrite a backing array possibly shared with the saved
+	// programme.
+	talks := make([]Talk, 0, len(s.talks)-1)
+	talks = append(talks, s.talks[:idx]...)
+	talks = append(talks, s.talks[idx+1:]...)
+	s.talks = talks
 	s.state.Schedule = s.talks
 	if removedCurrent && len(s.talks) > 0 {
 		// The item the clock pointed at is gone; point at the one that now

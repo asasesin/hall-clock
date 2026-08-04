@@ -203,7 +203,10 @@ func newServerWithClock(configPath string, clock func() time.Time) (*server, err
 			Schedule:                 activeSchedule,
 			Now:                      now,
 		},
-		talks:       activeSchedule,
+		// A copy, not the baseline itself: activeSchedule can be
+		// config.Schedule, and the runtime talks list must never share a
+		// backing array with the saved programme.
+		talks:       append([]Talk(nil), activeSchedule...),
 		remainingAt: first.Duration,
 		// With no PIN set there is no way in yet, so open the bootstrap window
 		// for whoever is installing the appliance. It closes on its own, and

@@ -811,6 +811,72 @@ func TestAdhocPartAddsTemporaryPartWithoutSavingConfig(t *testing.T) {
 	}
 }
 
+// The runtime talks list must never share a backing array with the saved
+// programme. It used to at boot, and inserting an ad-hoc part shifted the
+// shared array in place, writing the temporary part into config.Schedule —
+// the idle reconciler then saw baseline and talks disagree forever and
+// re-merged one more copy of the part on every tick, hundreds within minutes.
+// The JSON round-trip matters: a decoded slice has spare capacity, which is
+// what let the in-place shift land in the shared array instead of forcing a
+// reallocation.
+func TestAdhocInsertNeverTouchesTheSavedProgramme(t *testing.T) {
+	seed := Config{
+		Version:    currentConfigVersion,
+		DeviceName: "Hall Clock",
+		Schedule: []Talk{
+			{ID: 1, Title: "Opening Comments", Duration: 60},
+			{ID: 2, Title: "Spiritual Gems", Duration: 600},
+			{ID: 3, Title: "Bible Reading", Duration: 240},
+			{ID: 4, Title: "Concluding Comments", Duration: 180},
+		},
+	}
+	path := filepath.Join(t.TempDir(), "config.json")
+	raw, err := json.Marshal(seed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, raw, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	srv, err := newServer(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux, err := srv.routes("")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodPost, "/api/control/adhoc-part", strings.NewReader(`{"title":"Review","seconds":300,"afterTalkId":0}`))
+	req.Header.Set("X-Wall-Clock-Token", srv.config.ControlToken)
+	res := httptest.NewRecorder()
+	mux.ServeHTTP(res, req)
+	if res.Code != http.StatusOK {
+		t.Fatalf("adhoc add failed: %d %s", res.Code, res.Body.String())
+	}
+
+	// The reconciler runs inside every snapshot; a few of them stand in for
+	// the 4 Hz broadcast tick.
+	for i := 0; i < 5; i++ {
+		srv.snapshot()
+	}
+
+	temps := 0
+	for _, talk := range srv.talks {
+		if talk.Temporary {
+			temps++
+		}
+	}
+	if temps != 1 {
+		t.Fatalf("expected exactly one temporary part after reconciling, got %d", temps)
+	}
+	for _, talk := range srv.config.Schedule {
+		if talk.Temporary || talk.Title == "Review" {
+			t.Fatalf("temporary part leaked into the saved programme: %+v", srv.config.Schedule)
+		}
+	}
+}
+
 // A mistyped or no-longer-needed ad-hoc item can be removed from the picker.
 // Saved programme items cannot — those are edited in /setup — and the item
 // the clock is actively timing is protected until the timer is idle.
