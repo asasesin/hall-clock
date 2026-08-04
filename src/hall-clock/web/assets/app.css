@@ -842,8 +842,12 @@ textarea {
   text-align: left;
 }
 
+/* One layout at every width: the title gets its own row, and the minutes
+   field shares the second row with Add and Cancel. Four-across needed a
+   desktop; anywhere narrower it either squeezed the title to nothing or made
+   the page scroll sideways. */
 .adhoc-part-panel {
-  grid-template-columns: minmax(0, 1fr) minmax(0, 86px) auto auto;
+  grid-template-columns: minmax(0, 86px) minmax(0, 1fr) auto;
 }
 
 .adhoc-part-panel label {
@@ -867,6 +871,7 @@ textarea {
 
 .temporary-part-title {
   min-width: 0;
+  grid-column: 1 / -1;
 }
 
 .control-panel {
@@ -1726,10 +1731,6 @@ textarea {
     font-size: clamp(58px, 13vw, 96px);
   }
 
-  .adhoc-part-panel {
-    grid-template-columns: 1fr;
-  }
-
   .primary-action-row .action-primary {
     min-height: 56px;
     font-size: 17px;
@@ -1905,17 +1906,6 @@ textarea {
     width: 100%;
   }
 
-  .adhoc-part-panel {
-    grid-template-columns: 1fr;
-  }
-
-  .temporary-part-title {
-    grid-column: 1 / -1;
-  }
-
-  .adhoc-part-panel > .small-button {
-    width: 100%;
-  }
 }
 
 /* Pairing
