@@ -571,12 +571,66 @@
       command("/api/control/adjust", { deltaSeconds: Number(button.dataset.adjust) });
     });
   });
+  // No page can add itself to a home screen — iOS has no install API at all,
+  // and Android's only works over HTTPS — so the closest thing to auto-install
+  // is saying the right one-tap instruction to the right phone. Shown once,
+  // after pairing: before the PIN it would compete with the prompt that
+  // matters, and a phone already running from its icon needs nothing.
+  function showInstallHint() {
+    const hint = document.getElementById("installHint");
+    const text = document.getElementById("installHintText");
+    const dismiss = document.getElementById("installHintDismiss");
+    if (!hint || !text || !dismiss) return;
+    const DISMISSED_KEY = "wallClockInstallHintDismissed";
+    const standalone = window.matchMedia("(display-mode: standalone)").matches ||
+      window.navigator.standalone === true;
+    let dismissed = false;
+    try {
+      dismissed = localStorage.getItem(DISMISSED_KEY) === "1";
+    } catch {
+      // Storage denied means the dismissal could never stick either; showing
+      // the hint every visit would nag, so treat it as dismissed.
+      dismissed = true;
+    }
+    if (standalone || dismissed) return;
+
+    // iPadOS 13+ masquerades as a Mac, but a Mac with a touch screen isn't one.
+    const ios = /iPhone|iPad|iPod/.test(navigator.userAgent) ||
+      (navigator.platform === "MacIntel" && navigator.maxTouchPoints > 1);
+    let message;
+    if (ios) {
+      // Safari never brands its iOS user agent; every other browser does.
+      // Only Safari can add to the home screen, so anywhere else the useful
+      // instruction is the detour, not the destination.
+      const notSafari = /CriOS|FxiOS|EdgiOS|DuckDuckGo|GSA|OPR\/|OPT\//.test(navigator.userAgent);
+      message = notSafari
+        ? `To keep this controller on your home screen, open http://${location.host}/control in Safari, then tap Share and “Add to Home Screen”.`
+        : "Keep this controller one tap away: tap the Share button, then “Add to Home Screen”.";
+    } else if (/Android/.test(navigator.userAgent)) {
+      message = "Keep this controller one tap away: open the browser menu (⋮), then “Add to Home Screen”.";
+    } else {
+      // A laptop has no home screen worth pitching.
+      return;
+    }
+    text.textContent = message;
+    hint.classList.remove("hidden");
+    dismiss.addEventListener("click", () => {
+      try {
+        localStorage.setItem(DISMISSED_KEY, "1");
+      } catch {
+        // Hiding for this visit is all that's possible without storage.
+      }
+      hint.classList.add("hidden");
+    });
+  }
+
   async function init() {
     // A printed, tokenless QR (http://hallclock.local/control) lands here with
     // no token, so ask for the hall PIN. This blocks until the operator pairs —
     // a controller whose every button returns 401 is worse than one that says
     // plainly what it needs.
     await WallClock.ensurePaired();
+    showInstallHint();
     WallClock.subscribe(render, (online) => {
       offlineNotice.classList.toggle("hidden", online);
     });

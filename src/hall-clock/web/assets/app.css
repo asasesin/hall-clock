@@ -304,6 +304,26 @@ textarea {
   color: var(--amber);
 }
 
+/* Advice, not an alarm: the install hint borrows the notice shape but drops
+   the warning amber, so it never reads as something being wrong. */
+.install-hint {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  border-color: rgba(111, 156, 255, 0.4);
+  background: rgba(111, 156, 255, 0.1);
+  color: var(--text);
+}
+
+.install-hint p {
+  margin: 0;
+  flex: 1;
+}
+
+.install-hint .small-button {
+  flex-shrink: 0;
+}
+
 .controller-admin {
   display: flex;
   justify-content: center;
