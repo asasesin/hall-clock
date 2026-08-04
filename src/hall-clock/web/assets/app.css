@@ -468,6 +468,16 @@ textarea {
   transform: translateX(14px);
 }
 
+/* The first tap arms the switch instead of flipping it; amber is the same
+   pending-decision colour the timer's warning state uses. */
+.co-toggle.armed .co-toggle-track {
+  background: var(--amber);
+}
+
+.co-row:has(.co-toggle.armed) .co-row-hint {
+  color: var(--amber);
+}
+
 .co-toggle:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: 2px;

@@ -27,6 +27,7 @@
   let nextArmTimeout = null;
   let endArmTimeout = null;
   let partArmTimeout = null;
+  let coArmTimeout = null;
   let latestStatus = "idle";
   let latestState = null;
   let timerCommandPending = false;
@@ -118,7 +119,15 @@
     coToggle.title = coToggle.disabled
       ? "Circuit overseer visit — reset the timer to idle to change"
       : "Circuit overseer visit schedule";
-    if (state.circuitOverseer && state.circuitOverseerExpiresAt) {
+    // A confirmation armed on a switch that just locked, or whose flip already
+    // happened from another phone, would apply on a later stray tap.
+    if ((coToggle.disabled || state.circuitOverseer) && coToggle.classList.contains("armed")) {
+      disarmCo();
+    }
+    if (coToggle.classList.contains("armed")) {
+      // The armed hint is the confirmation prompt; a broadcast must not
+      // overwrite it mid-decision.
+    } else if (state.circuitOverseer && state.circuitOverseerExpiresAt) {
       coHint.textContent = `On — turns off automatically around ${WallClock.formatClock(state.circuitOverseerExpiresAt)}`;
       coHint.classList.remove("hidden");
     } else if (coToggle.disabled) {
@@ -370,6 +379,14 @@
 
 
 
+  function disarmCo() {
+    clearTimeout(coArmTimeout);
+    coArmTimeout = null;
+    coToggle.classList.remove("armed");
+    // The hint text is left for the next state broadcast to restore: render
+    // rewrites it four times a second whenever the toggle is not armed.
+  }
+
   function disarmEnd() {
     clearTimeout(endArmTimeout);
     endArmTimeout = null;
@@ -509,8 +526,19 @@
     disarmNext();
     advanceCommand("/api/control/next");
   });
+  // Turning CO mode on replaces the whole programme, so it arms like End
+  // does rather than flipping on a single tap. Turning it off stays one tap:
+  // undoing a mistaken enable should be quicker than making one.
   coToggle.addEventListener("click", () => {
     const next = !(latestState && latestState.circuitOverseer);
+    if (next && !coToggle.classList.contains("armed")) {
+      coToggle.classList.add("armed");
+      coHint.textContent = "Tap again to apply the circuit overseer schedule.";
+      coHint.classList.remove("hidden");
+      coArmTimeout = setTimeout(disarmCo, ARM_TIMEOUT_MS);
+      return;
+    }
+    disarmCo();
     command("/api/control/circuit-overseer", { on: next });
   });
   if (languageSelect) {
