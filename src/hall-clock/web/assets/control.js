@@ -606,6 +606,10 @@
       message = notSafari
         ? `To keep this controller on your home screen, open http://${location.host}/control in Safari, then tap Share and “Add to Home Screen”.`
         : "Keep this controller one tap away: tap the Share button, then “Add to Home Screen”.";
+    } else if (/SamsungBrowser/.test(navigator.userAgent)) {
+      // Also matches /Android/, so it must be asked first. Samsung Internet
+      // puts its menu at the bottom and names the entry differently.
+      message = "Keep this controller one tap away: tap the ☰ menu, then “Add page to” and “Home screen”.";
     } else if (/Android/.test(navigator.userAgent)) {
       message = "Keep this controller one tap away: open the browser menu (⋮), then “Add to Home Screen”.";
     } else {
