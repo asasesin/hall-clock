@@ -193,6 +193,11 @@ func (s *server) handleAdhocPart(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		Title   string `json:"title"`
 		Seconds int    `json:"seconds"`
+		// AfterTalkID is where the operator chose to put the item: 0 means
+		// the start of the meeting, a talk id means right after that item.
+		// Absent falls back to after the current item, which keeps an older
+		// controller page working across an update.
+		AfterTalkID *int `json:"afterTalkId"`
 	}
 	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
 		http.Error(w, "invalid JSON body", http.StatusBadRequest)
@@ -206,10 +211,25 @@ func (s *server) handleAdhocPart(w http.ResponseWriter, r *http.Request) {
 
 	s.mu.Lock()
 	insertAt := len(s.talks)
-	for i, talk := range s.talks {
-		if talk.ID == s.state.CurrentTalkID {
-			insertAt = i + 1
-			break
+	switch {
+	case body.AfterTalkID == nil:
+		for i, talk := range s.talks {
+			if talk.ID == s.state.CurrentTalkID {
+				insertAt = i + 1
+				break
+			}
+		}
+	case *body.AfterTalkID == 0:
+		insertAt = 0
+	default:
+		// An id that vanished between the broadcast and the tap lands the
+		// item at the end rather than failing a request whose form the
+		// operator has already dismissed.
+		for i, talk := range s.talks {
+			if talk.ID == *body.AfterTalkID {
+				insertAt = i + 1
+				break
+			}
 		}
 	}
 	nextID := 1
@@ -221,55 +241,12 @@ func (s *server) handleAdhocPart(w http.ResponseWriter, r *http.Request) {
 	copy(s.talks[insertAt+1:], s.talks[insertAt:])
 	s.talks[insertAt] = part
 	s.state.Schedule = s.talks
-	if s.state.Status == StatusIdle {
+	// The operator said where the item goes; jumping the clock's selection
+	// there as well made adding a later item hijack what was lined up. Only
+	// a schedule with nothing selected adopts the new item.
+	if s.state.Status == StatusIdle && s.state.CurrentTalkID == 0 {
 		s.selectTalkLocked(part.ID)
 	}
-	state := s.snapshotLocked()
-	s.mu.Unlock()
-
-	s.broadcast(state)
-	writeJSON(w, state)
-}
-
-func (s *server) handleMovePart(w http.ResponseWriter, r *http.Request) {
-	var body struct {
-		TalkID int `json:"talkId"`
-		Delta  int `json:"delta"`
-	}
-	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
-		http.Error(w, "invalid JSON body", http.StatusBadRequest)
-		return
-	}
-	if body.Delta != -1 && body.Delta != 1 {
-		http.Error(w, "delta must be -1 or 1", http.StatusBadRequest)
-		return
-	}
-
-	s.mu.Lock()
-	idx := -1
-	for i, talk := range s.talks {
-		if talk.ID == body.TalkID {
-			idx = i
-			break
-		}
-	}
-	if idx < 0 {
-		s.mu.Unlock()
-		http.Error(w, "talk not found", http.StatusNotFound)
-		return
-	}
-	if !s.talks[idx].Temporary {
-		s.mu.Unlock()
-		http.Error(w, "only temporary items can be moved here", http.StatusConflict)
-		return
-	}
-	next := idx + body.Delta
-	if next < 0 || next >= len(s.talks) {
-		s.mu.Unlock()
-		http.Error(w, "cannot move item further", http.StatusConflict)
-		return
-	}
-	s.talks[idx], s.talks[next] = s.talks[next], s.talks[idx]
 	state := s.snapshotLocked()
 	s.mu.Unlock()
 

@@ -9,6 +9,7 @@
   const adhocPartBtn = document.getElementById("adhocPartBtn");
   const adhocPartPanel = document.getElementById("adhocPartPanel");
   const adhocPartTitleInput = document.getElementById("adhocPartTitleInput");
+  const adhocPartAfterSelect = document.getElementById("adhocPartAfterSelect");
   const adhocPartMinutesInput = document.getElementById("adhocPartMinutesInput");
   const cancelAdhocPartBtn = document.getElementById("cancelAdhocPartBtn");
   const currentPartTitle = document.getElementById("currentPartTitle");
@@ -251,6 +252,24 @@
     closePartPicker();
     adhocPartTitleInput.value = "";
     adhocPartMinutesInput.value = "5";
+    // The operator says where the item goes before it exists — the old flow
+    // dropped it after the current item and left them shuffling it with
+    // arrow buttons afterwards. Defaults to after the current item, which
+    // is where an announcement usually lands.
+    const schedule = (latestState && latestState.schedule) || [];
+    const currentId = latestState && latestState.currentTalkId;
+    adhocPartAfterSelect.innerHTML = "";
+    const startOption = document.createElement("option");
+    startOption.value = "0";
+    startOption.textContent = "Start of meeting";
+    adhocPartAfterSelect.appendChild(startOption);
+    schedule.forEach((talk, index) => {
+      const option = document.createElement("option");
+      option.value = String(talk.id);
+      option.textContent = `${index + 1}. ${talk.title}`;
+      option.selected = talk.id === currentId;
+      adhocPartAfterSelect.appendChild(option);
+    });
     adhocPartPanel.classList.remove("hidden");
     adhocPartBtn.setAttribute("aria-expanded", "true");
     // No auto-focus: on a phone that throws the keyboard over half the
@@ -310,17 +329,6 @@
           <strong>${Math.round(talk.durationSeconds / 60)} min</strong>
         `;
         row.appendChild(button);
-
-        if (talk.temporary) {
-          const actions = document.createElement("div");
-          actions.className = "part-picker-actions";
-          actions.innerHTML = `
-            <button class="part-picker-move" type="button" data-move-talk-id="${talk.id}" data-move-delta="-1" ${index === 0 ? "disabled" : ""} aria-label="Move ${escapeAttr(talk.title)} earlier">▲</button>
-            <button class="part-picker-move" type="button" data-move-talk-id="${talk.id}" data-move-delta="1" ${index === schedule.length - 1 ? "disabled" : ""} aria-label="Move ${escapeAttr(talk.title)} later">▼</button>
-          `;
-          row.appendChild(actions);
-        }
-
         partPickerList.appendChild(row);
       });
       if (armedTalkId !== undefined) {
@@ -451,13 +459,6 @@
   });
   partPickerBtn.addEventListener("click", togglePartPicker);
   partPickerList.addEventListener("click", (event) => {
-    const moveButton = event.target.closest("[data-move-talk-id]");
-    if (moveButton) {
-      const talkId = Number(moveButton.dataset.moveTalkId);
-      const delta = Number(moveButton.dataset.moveDelta);
-      command("/api/control/move-part", { talkId, delta });
-      return;
-    }
     const button = event.target.closest("[data-talk-id]");
     if (!button) return;
     guardedPartCommand(button, "Confirm item", () => {
@@ -477,7 +478,11 @@
     const title = adhocPartTitleInput.value.trim() || "Additional item";
     const minutes = Math.max(1, Math.min(120, Number(adhocPartMinutesInput.value || 5)));
     closeAdhocPartPanel();
-    command("/api/control/adhoc-part", { title, seconds: minutes * 60 });
+    command("/api/control/adhoc-part", {
+      title,
+      seconds: minutes * 60,
+      afterTalkId: Number(adhocPartAfterSelect.value) || 0,
+    });
   });
   cancelAdhocPartBtn.addEventListener("click", closeAdhocPartPanel);
   document.addEventListener("click", (event) => {

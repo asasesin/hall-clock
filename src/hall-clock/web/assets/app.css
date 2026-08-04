@@ -706,7 +706,7 @@ textarea {
 
 .part-picker-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr);
   gap: 8px;
   align-items: stretch;
 }
@@ -758,32 +758,6 @@ textarea {
   font-weight: 800;
   letter-spacing: 0.06em;
   text-transform: uppercase;
-}
-
-.part-picker-actions {
-  display: grid;
-  gap: 6px;
-}
-
-.part-picker-move {
-  width: 38px;
-  border: 1px solid var(--line-strong);
-  border-radius: 999px;
-  background: #202832;
-  color: var(--muted);
-  font-size: 12px;
-  font-weight: 900;
-  cursor: pointer;
-}
-
-.part-picker-move:hover {
-  border-color: rgba(57, 217, 138, 0.4);
-  color: var(--text);
-}
-
-.part-picker-move:disabled {
-  opacity: 0.35;
-  cursor: not-allowed;
 }
 
 /* A rare, secondary action: a round + button beside the picker, so it never
@@ -869,7 +843,8 @@ textarea {
   min-width: 0;
 }
 
-.adhoc-part-panel input {
+.adhoc-part-panel input,
+.adhoc-part-panel select {
   width: 100%;
   min-width: 0;
   border: 1px solid var(--line-strong);
@@ -879,7 +854,8 @@ textarea {
   color: var(--text);
 }
 
-.temporary-part-title {
+.temporary-part-title,
+.temporary-part-position {
   min-width: 0;
   grid-column: 1 / -1;
 }
@@ -1902,18 +1878,6 @@ textarea {
   .part-picker-option {
     grid-template-columns: 1fr;
     gap: 4px;
-  }
-
-  .part-picker-row {
-    grid-template-columns: 1fr;
-  }
-
-  .part-picker-actions {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .part-picker-move {
-    width: 100%;
   }
 
 }

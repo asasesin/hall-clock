@@ -798,11 +798,58 @@ func TestAdhocPartAddsTemporaryPartWithoutSavingConfig(t *testing.T) {
 	if len(state.Schedule) != runtimeScheduleLength+1 {
 		t.Fatalf("expected one temporary part, got %d parts", len(state.Schedule))
 	}
-	if state.CurrentTalkTitle != "Local announcement" || state.DurationSeconds != 420 {
-		t.Fatalf("expected idle timer to select temporary part, got %q for %ds", state.CurrentTalkTitle, state.DurationSeconds)
+	// Adding never steals the clock: what was lined up stays lined up, and
+	// the new item lands after it (the no-position legacy default).
+	if state.CurrentTalkTitle != "Opening Comments" {
+		t.Fatalf("expected the selection to stay put, got %q", state.CurrentTalkTitle)
+	}
+	if state.Schedule[1].Title != "Local announcement" || !state.Schedule[1].Temporary {
+		t.Fatalf("expected the temporary part right after the current item, got %+v", state.Schedule)
 	}
 	if len(srv.config.Schedule) != savedScheduleLength {
 		t.Fatalf("expected saved schedule to stay at %d parts, got %d", savedScheduleLength, len(srv.config.Schedule))
+	}
+}
+
+// The operator chooses the position before the item exists: 0 pins it to the
+// start of the meeting, a talk id puts it right after that item, and either
+// way the clock's selection stays wherever it was.
+func TestAdhocPartHonoursChosenPosition(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux, err := srv.routes("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	do := func(path, body string) State {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.Header.Set("X-Wall-Clock-Token", srv.config.ControlToken)
+		res := httptest.NewRecorder()
+		mux.ServeHTTP(res, req)
+		if res.Code != http.StatusOK {
+			t.Fatalf("%s returned %d: %s", path, res.Code, res.Body.String())
+		}
+		var state State
+		if err := json.Unmarshal(res.Body.Bytes(), &state); err != nil {
+			t.Fatal(err)
+		}
+		return state
+	}
+
+	secondID := srv.talks[1].ID
+	afterSecond := do("/api/control/adhoc-part", fmt.Sprintf(`{"title":"After second","seconds":300,"afterTalkId":%d}`, secondID))
+	if afterSecond.Schedule[2].Title != "After second" {
+		t.Fatalf("expected the item right after the chosen one, got %+v", afterSecond.Schedule)
+	}
+
+	atStart := do("/api/control/adhoc-part", `{"title":"Welcome","seconds":120,"afterTalkId":0}`)
+	if atStart.Schedule[0].Title != "Welcome" {
+		t.Fatalf("expected the item at the start of the meeting, got %+v", atStart.Schedule)
+	}
+	if atStart.CurrentTalkTitle != "Opening Comments" {
+		t.Fatalf("expected the selection to stay put, got %q", atStart.CurrentTalkTitle)
 	}
 }
 
@@ -966,68 +1013,6 @@ func TestSaveConfigUpdatesRunningCurrentDurationWithStaleMeetingType(t *testing.
 	}
 	if res.Schedule[0].Duration != 120 {
 		t.Fatalf("expected control schedule to reflect edited minutes, got %+v", res.Schedule[0])
-	}
-}
-
-func TestMoveRejectsSavedScheduleParts(t *testing.T) {
-	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	mux, err := srv.routes("")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	req := httptest.NewRequest(http.MethodPost, "/api/control/move-part", strings.NewReader(`{"talkId":1,"delta":1}`))
-	req.Header.Set("X-Wall-Clock-Token", srv.config.ControlToken)
-	res := httptest.NewRecorder()
-	mux.ServeHTTP(res, req)
-
-	if res.Code != http.StatusConflict {
-		t.Fatalf("expected conflict when moving saved schedule part, got %d: %s", res.Code, res.Body.String())
-	}
-}
-
-func TestMoveTemporaryPartReordersRuntimeSchedule(t *testing.T) {
-	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	mux, err := srv.routes("")
-	if err != nil {
-		t.Fatal(err)
-	}
-
-	do := func(path, body string) State {
-		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
-		req.Header.Set("X-Wall-Clock-Token", srv.config.ControlToken)
-		res := httptest.NewRecorder()
-		mux.ServeHTTP(res, req)
-		if res.Code != http.StatusOK {
-			t.Fatalf("%s returned %d: %s", path, res.Code, res.Body.String())
-		}
-		var state State
-		if err := json.Unmarshal(res.Body.Bytes(), &state); err != nil {
-			t.Fatal(err)
-		}
-		return state
-	}
-
-	added := do("/api/control/adhoc-part", `{"title":"Temporary note","seconds":300}`)
-	tempID := added.CurrentTalkID
-
-	movedUp := do("/api/control/move-part", fmt.Sprintf(`{"talkId":%d,"delta":-1}`, tempID))
-	if movedUp.Schedule[0].ID != tempID {
-		t.Fatalf("expected temp part to move to the front, got %+v", movedUp.Schedule)
-	}
-	if !movedUp.Schedule[0].Temporary {
-		t.Fatal("expected moved part to remain marked temporary")
-	}
-
-	movedDown := do("/api/control/move-part", fmt.Sprintf(`{"talkId":%d,"delta":1}`, tempID))
-	if len(movedDown.Schedule) < 2 || movedDown.Schedule[1].ID != tempID {
-		t.Fatalf("expected temp part to move back after the first part, got %+v", movedDown.Schedule)
 	}
 }
 
