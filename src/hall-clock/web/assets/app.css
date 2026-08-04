@@ -346,7 +346,6 @@ textarea {
   display: flex;
   min-height: 26px;
   align-items: center;
-  justify-content: space-between;
   gap: 12px;
   margin-bottom: 8px;
   position: relative;
@@ -363,18 +362,6 @@ textarea {
   text-align: left;
 }
 
-.status-badge {
-  min-width: 82px;
-  border: 1px solid var(--line-strong);
-  border-radius: 999px;
-  padding: 5px 10px;
-  background: rgba(255, 255, 255, 0.04);
-  color: #b8c1cc;
-  font-size: 12px;
-  font-weight: 800;
-  letter-spacing: 0.04em;
-  text-align: center;
-}
 
 /* Pre-meeting schedule setup (language + CO), divided from the live item
    controls above it. Both lock once the timer runs, so they sit at the bottom. */
@@ -485,16 +472,7 @@ textarea {
   color: var(--green);
 }
 
-.status-badge.running {
-  border-color: rgba(57, 217, 138, 0.35);
-  color: var(--green);
-}
 
-.status-badge.paused,
-.status-badge.prestart {
-  border-color: rgba(246, 196, 83, 0.35);
-  color: var(--amber);
-}
 
 /* The item being timed, named right under its clock so "now" and "next" read
    as one pair instead of the current title living down in the picker card. */
@@ -904,17 +882,28 @@ textarea {
 }
 
 
-/* Stop timer and End meeting only act on a live clock. While idle, Stop keeps
-   its slot beside Bell but turns invisible, so tapping Start never shifts the
-   buttons under the operator's thumb. */
+/* Hides a control without collapsing its slot, so neighbours in the same row
+   stay put. Only useful where something else shares the row -- a lone button
+   left invisible is just a hole, which is what the two rules below handle. */
 .action.slot-hidden {
   visibility: hidden;
 }
 
-/* End meeting sits at the bottom of the card, so its row collapses outright
-   while idle -- reappearing only extends the card downward, never moving a
-   button the operator is about to press. */
-.advance-action-row:has(> #endBtn.slot-hidden) {
+/* Start has no job once the clock is running, and it sits at the top of the
+   card, so reserving its slot leaves an empty band above the buttons rather
+   than a tidy gap at the bottom. Collapse the row outright: Next part moves up
+   into the space, and a stray second tap lands on a control that arms before it
+   acts rather than one that fires. */
+.primary-action-row:has(> #startBtn.slot-hidden) {
+  display: none;
+}
+
+/* Both of these come and go over the course of a meeting: Next has nothing to
+   advance to on the last item, and End meeting only belongs there. Collapse the
+   row rather than reserve it -- a lone invisible button is just a hole, and
+   these two hand over to each other at the same point anyway. */
+.advance-action-row:has(> #endBtn.slot-hidden),
+.advance-action-row:has(> #nextBtn.slot-hidden) {
   display: none;
 }
 
@@ -1774,10 +1763,6 @@ textarea {
     margin-bottom: 6px;
   }
 
-  .status-badge {
-    min-width: 72px;
-    padding: 4px 8px;
-  }
 
   .control-time {
     font-size: 52px;

@@ -96,6 +96,25 @@ This is a trusted-LAN appliance, not an internet-facing service: keep it on an
 isolated network. The PIN raises the bar from "anyone on the Wi-Fi" to "anyone
 the hall gave the PIN to", which is the property the hardware can support.
 
+## Installing on a phone
+
+`/control` and `/setup` ship web app manifests and icons, so a paired phone can
+install them from the browser's **Add to Home Screen**. Each gets its own icon
+(clock for control, gear for setup) and opens full screen like a native app.
+
+Platform notes, both consequences of serving plain HTTP on a `.local` name (see
+the Caddyfile for why HTTP is the right call here):
+
+- **iOS**: installs open standalone with no browser chrome. Safari gives the
+  installed app its own `localStorage`, so it asks for the hall PIN once on
+  first launch, then stays paired like any other controller.
+- **Android**: Chrome only offers a full standalone install over HTTPS, so Add
+  to Home Screen creates a shortcut that opens in the browser. Same icon on the
+  home screen, one tap to the controller — just with the address bar visible.
+
+There is no service worker: one would not register over plain HTTP, and the app
+is only meaningful while it can reach the Pi anyway.
+
 ## Meeting Data
 
 Weekend meetings use a fixed local template:

@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"io/fs"
 	"log"
+	"mime"
 	"net/http"
 	"strings"
 	"sync"
@@ -78,6 +79,15 @@ type server struct {
 }
 
 const currentConfigVersion = 1
+
+func init() {
+	// The OS mime table usually has no entry for .webmanifest, and FileServer
+	// would sniff it as text/plain; browsers want application/manifest+json
+	// for the home-screen install manifests under /assets.
+	if err := mime.AddExtensionType(".webmanifest", "application/manifest+json"); err != nil {
+		panic(err)
+	}
+}
 
 // newServer builds a server on the wall clock.
 func newServer(configPath string) (*server, error) {

@@ -4,6 +4,18 @@
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
     <title>Hall Clock Control</title>
+    <meta name="theme-color" content="#07090b">
+    <!-- Home-screen install: iOS reads the apple-* tags (and keeps its own
+         localStorage, so the installed app asks for the PIN once); Android
+         reads the manifest. Over plain HTTP Android gets a shortcut rather
+         than a full standalone install — see the Caddyfile for why HTTP. -->
+    <meta name="mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="apple-mobile-web-app-status-bar-style" content="black">
+    <meta name="apple-mobile-web-app-title" content="Hall Clock">
+    <link rel="manifest" href="/assets/control.webmanifest">
+    <link rel="apple-touch-icon" href="/assets/icon-control-180.png">
+    <link rel="icon" type="image/png" sizes="192x192" href="/assets/icon-control-192.png">
     <link rel="stylesheet" href="/assets/app.css">
   </head>
   <body class="control-page">
@@ -20,11 +32,7 @@
 
       <section class="compact-timer">
         <div class="timer-meta">
-          <div>
-            <p id="partPosition" class="card-eyebrow">Schedule</p>
-            <p id="meetingType" class="meeting-chip">Midweek meeting</p>
-          </div>
-          <span id="statusBadge" class="status-badge">Idle</span>
+          <p id="meetingType" class="meeting-chip">Midweek meeting</p>
         </div>
         <div id="timeValue" class="control-time">00:00</div>
         <p id="nowPartTitle" class="card-now hidden"></p>

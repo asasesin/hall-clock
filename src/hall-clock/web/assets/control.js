@@ -16,11 +16,9 @@
   const startBtn = document.getElementById("startBtn");
   const nextBtn = document.getElementById("nextBtn");
   const endBtn = document.getElementById("endBtn");
-  const partPosition = document.getElementById("partPosition");
   const nowPartTitle = document.getElementById("nowPartTitle");
   const meetingOvertime = document.getElementById("meetingOvertime");
   const nextPart = document.getElementById("nextPart");
-  const statusBadge = document.getElementById("statusBadge");
   const coToggle = document.getElementById("coToggle");
   const coHint = document.getElementById("coHint");
   const languageSelect = document.getElementById("languageSelect");
@@ -87,30 +85,19 @@
     startBtn.dataset.status = state.status;
     // Start only starts. Operators here never pause a part — they let it run
     // over and move on — so while the clock is running the button has no job
-    // and goes invisible, keeping its slot so nothing shifts under a thumb.
+    // and its row collapses (see the CSS): Next moves up into the space, and a
+    // stray second tap lands on a control that arms before it acts.
     // "Resume" survives for a paused state reached through the API, which the
     // UI can no longer produce but must not strand anybody in.
     startBtn.classList.toggle("slot-hidden", state.status === "running");
     if (!timerCommandPending) {
       startBtn.textContent = state.status === "paused" ? "Resume" : "Start";
     }
-    // End meeting only acts on a live clock, so while idle it goes invisible
-    // rather than greyed -- but keeps its slot, so tapping Start never shifts
-    // the other buttons under the operator's thumb.
-    const idle = state.status === "idle";
-    endBtn.classList.toggle("slot-hidden", idle);
-    if (idle && endBtn.classList.contains("armed")) {
-      disarmEnd();
-    }
     if (state.status === "idle") {
       disarmPartButtons();
       // No live timer left to protect, so the confirmation is moot.
       disarmNext();
     }
-    statusBadge.textContent = prestart ? "Countdown" : WallClock.statusLabel(state.status);
-    statusBadge.classList.toggle("running", state.status === "running");
-    statusBadge.classList.toggle("paused", state.status === "paused");
-    statusBadge.classList.toggle("prestart", prestart);
     coToggle.setAttribute("aria-checked", state.circuitOverseer ? "true" : "false");
     const appliedLanguage = state.midweekLanguage || languageFromSchedule(state.schedule) || "en";
     lastAppliedLanguage = appliedLanguage;
@@ -145,14 +132,18 @@
 
     const schedule = state.schedule || [];
     const index = schedule.findIndex((talk) => talk.id === state.currentTalkId);
-    partPosition.textContent = prestart ? (state.prestartLabel || "Meeting starts soon") : index >= 0 ? `Item ${index + 1} of ${schedule.length}` : "Schedule";
     // The clock's time belongs to this title; naming it here saves the operator
-    // a glance down at the picker card to learn what is being timed.
-    const nowTitle = index >= 0 ? schedule[index].title : "";
+    // a glance down at the picker card to learn what is being timed. During the
+    // pre-meeting countdown the big number is not timing an item at all, so say
+    // what it *is* counting down to -- that label used to live in the item
+    // counter above, which is gone.
+    const nowTitle = prestart
+      ? state.prestartLabel || "Meeting starts soon"
+      : index >= 0
+        ? schedule[index].title
+        : "";
     nowPartTitle.textContent = nowTitle;
-    // During the pre-meeting countdown the big number is not timing this item,
-    // so the title under it would mislabel the countdown.
-    nowPartTitle.classList.toggle("hidden", nowTitle === "" || prestart);
+    nowPartTitle.classList.toggle("hidden", nowTitle === "");
     const next = index >= 0 ? schedule[index + 1] : undefined;
     nextPart.textContent = next ? `Next: ${next.title}` : "Last item of the meeting";
 
@@ -164,18 +155,32 @@
     meetingOvertime.textContent = showMeetingOvertime ? `Meeting ${WallClock.formatTime(behind)} behind` : "";
     meetingOvertime.classList.toggle("hidden", !showMeetingOvertime);
 
-    // Nothing follows the last item, so the button retires instead of wrapping.
-    // Leave an armed label alone: overwriting it mid-confirmation would drop the
-    // operator's first tap on the next state broadcast.
+    // End meeting belongs to the end of the meeting, not to all of it: it
+    // appears on the final item rather than sitting under the operator's thumb
+    // for the whole programme. Not gated on the clock reaching zero -- a last
+    // item that finishes early would leave no button on screen at all, since
+    // Start is hidden while running and Next has nothing left to advance to.
+    const onFinalItem = !next && !prestart && timing;
+    endBtn.classList.toggle("slot-hidden", !onFinalItem);
+    if (!onFinalItem && endBtn.classList.contains("armed")) {
+      disarmEnd();
+    }
+
+    // Nothing follows the last item, so Next goes away entirely rather than
+    // greying out under a "Meeting complete" label -- a control that looks
+    // tappable and does nothing is worse than no control. End meeting takes its
+    // place. Leave an armed label alone: overwriting it mid-confirmation would
+    // drop the operator's first tap on the next state broadcast.
     const atEnd = !next;
     const busy = timerCommandPending || advancePending;
+    nextBtn.classList.toggle("slot-hidden", atEnd);
     nextBtn.disabled = busy || atEnd;
     endBtn.disabled = busy;
     if (!nextBtn.classList.contains("armed")) {
-      nextBtn.textContent = atEnd ? "Meeting complete" : "Next part";
+      nextBtn.textContent = "Next part";
     }
-    // Stop is the same server action as Next, so it has nothing left to do at
-    // the last item; point the operator at the button that does work there.
+    // A confirmation left armed on a button that just went away would fire the
+    // next time it reappears.
     if (nextBtn.disabled && nextBtn.classList.contains("armed")) {
       disarmNext();
     }
@@ -372,19 +377,12 @@
     endBtn.textContent = "End meeting";
   }
 
-  // The last item has nothing after it, so the button says so rather than
-  // looping back to the opening comments.
-  function isLastPart(state) {
-    const schedule = (state && state.schedule) || [];
-    if (schedule.length === 0) return true;
-    return schedule[schedule.length - 1].id === state.currentTalkId;
-  }
 
   function disarmNext() {
     clearTimeout(nextArmTimeout);
     nextArmTimeout = null;
     nextBtn.classList.remove("armed");
-    nextBtn.textContent = latestState && isLastPart(latestState) ? "Meeting complete" : "Next part";
+    nextBtn.textContent = "Next part";
   }
 
   function disarmPartButtons() {
