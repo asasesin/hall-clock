@@ -265,3 +265,22 @@ func TestWeekendLanguageSwitchLeavesTheMidweekBaselineAlone(t *testing.T) {
 		t.Fatalf("weekend switch replaced the midweek baseline: %d parts, was %d", len(after), len(baseline))
 	}
 }
+
+// English was the one language imports never validated, so a poisoned source
+// could cache Twi items as "English". The check must cut both ways.
+func TestValidateImportedLanguageIsSymmetric(t *testing.T) {
+	twi := []Talk{{Title: "Nnianim Nsɛm"}, {Title: "Bible Akenkan"}}
+	english := []Talk{{Title: "Opening Comments"}, {Title: "Bible Reading"}}
+	if err := validateImportedLanguage("en", twi); err == nil {
+		t.Fatal("expected Twi items offered as English to be rejected")
+	}
+	if err := validateImportedLanguage("en", english); err != nil {
+		t.Fatalf("expected English items to pass as English: %v", err)
+	}
+	if err := validateImportedLanguage("tw", english); err == nil {
+		t.Fatal("expected English items offered as Twi to be rejected")
+	}
+	if err := validateImportedLanguage("tw", twi); err != nil {
+		t.Fatalf("expected Twi items to pass as Twi: %v", err)
+	}
+}

@@ -569,13 +569,53 @@ func sameAutoImportSource(a, b autoImportSource) bool {
 
 func validateImportedLanguage(language string, schedule []Talk) error {
 	language = normalizeMidweekLanguage(language)
-	if language == "" || language == "en" {
+	if language == "" {
+		return nil
+	}
+	// Symmetric on purpose: English used to be waved through, which let a
+	// poisoned source cache a Twi workbook as "English" — the one language
+	// with no check was the one that got the wrong items.
+	if language == "en" {
+		if !looksLikeEnglishMidweekSchedule(schedule) {
+			return errors.New("WOL returned non-English titles for English")
+		}
 		return nil
 	}
 	if looksLikeEnglishMidweekSchedule(schedule) {
 		return fmt.Errorf("WOL returned English titles for %s", languageName(language))
 	}
 	return nil
+}
+
+// healMidweekLanguageBookkeeping drops per-language bookkeeping whose URL
+// disagrees with the language it is filed under. Config written before the
+// weekend-language fix above can hold such entries — a Twi source or cached
+// schedule filed under "en" — and every path that reads them trusts the key,
+// so a switch to English would put Twi items on screen labelled English.
+// Dropping is safe: sources fall back to the built-in defaults and a missing
+// cache is re-imported, both in the right language.
+//
+// The active language gets the same reconciliation — the applied schedule came
+// from MidweekURL, so when the two disagree the URL is the truth — but only
+// once any operator override has lapsed: inside the override window a weekend
+// language choice legitimately disagrees with the midweek URL.
+func healMidweekLanguageBookkeeping(config *Config, now time.Time) {
+	for language, cached := range config.MidweekLanguageSchedules {
+		if actual := wolLanguage(cached.URL); actual != "" && actual != language {
+			delete(config.MidweekLanguageSchedules, language)
+		}
+	}
+	for language, source := range config.MidweekLanguageSources {
+		if actual := wolLanguage(source); actual != "" && actual != language {
+			delete(config.MidweekLanguageSources, language)
+		}
+	}
+	if now.Before(config.MidweekLanguageOverrideUntil) {
+		return
+	}
+	if actual := wolLanguage(config.MidweekURL); actual != "" && actual != config.MidweekLanguage {
+		config.MidweekLanguage = actual
+	}
 }
 
 func looksLikeEnglishMidweekSchedule(schedule []Talk) bool {

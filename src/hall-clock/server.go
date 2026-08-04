@@ -140,7 +140,14 @@ func newServerWithClock(configPath string, clock func() time.Time) (*server, err
 	if config.MidweekLanguageSources == nil {
 		config.MidweekLanguageSources = map[string]string{}
 	}
-	if config.MidweekLanguage != "" && config.MidweekURL != "" {
+	healMidweekLanguageBookkeeping(&config, clock())
+	// File the active URL as its language's source only when the two agree.
+	// They can legitimately disagree: switching the weekend language changes
+	// MidweekLanguage but deliberately leaves the midweek URL alone, and
+	// filing that URL under the weekend's language handed the pre-load sweep
+	// a source that imports the wrong language's items — a Twi workbook
+	// cached and served as "English".
+	if config.MidweekLanguage != "" && wolLanguage(config.MidweekURL) == config.MidweekLanguage {
 		config.MidweekLanguageSources[config.MidweekLanguage] = config.MidweekURL
 	}
 	if config.MidweekLanguage != "" && config.MidweekImportedWeek != "" && len(config.Schedule) > 0 {

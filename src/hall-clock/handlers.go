@@ -607,6 +607,12 @@ func (s *server) handleImportMidweek(w http.ResponseWriter, r *http.Request) {
 			s.config.MidweekLanguageSources = map[string]string{}
 		}
 		s.config.MidweekLanguageSources[language] = sourceURL
+	} else {
+		// A URL whose language cannot be read still imports fine, but the
+		// previous language must not claim its schedule: the per-language
+		// cache store below files under MidweekLanguage, and a stale value
+		// would label these items as a language they are not.
+		s.config.MidweekLanguage = ""
 	}
 	importedWeek := isoWeekString(s.clock())
 	s.config.MidweekImportedWeek = importedWeek
