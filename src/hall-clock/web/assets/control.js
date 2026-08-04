@@ -324,7 +324,6 @@
         button.innerHTML = `
           <span class="part-picker-label">
             <span>${index + 1}. ${escapeHTML(talk.title)}</span>
-            ${talk.temporary ? '<span class="part-badge">Ad hoc</span>' : ""}
           </span>
           <strong>${Math.round(talk.durationSeconds / 60)} min</strong>
         `;

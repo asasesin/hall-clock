@@ -769,18 +769,6 @@ textarea {
   color: var(--green);
 }
 
-.part-badge {
-  width: fit-content;
-  border: 1px solid rgba(255, 255, 255, 0.1);
-  border-radius: 999px;
-  padding: 2px 8px;
-  color: var(--amber);
-  font-size: 11px;
-  font-weight: 800;
-  letter-spacing: 0.06em;
-  text-transform: uppercase;
-}
-
 /* A rare, secondary action: a round + button beside the picker, so it never
    competes with the Current item selector or reads as an empty drop-zone the
    way a full-width dashed bar did. Its accessible name and tooltip carry the
