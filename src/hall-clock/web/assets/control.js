@@ -253,7 +253,10 @@
     adhocPartMinutesInput.value = "5";
     adhocPartPanel.classList.remove("hidden");
     adhocPartBtn.setAttribute("aria-expanded", "true");
-    adhocPartTitleInput.focus();
+    // No auto-focus: on a phone that throws the keyboard over half the
+    // controls, and the defaults ("Additional item", 5 min) mean many
+    // operators only want to tap Add. The keyboard should arrive when the
+    // title is tapped, not before.
   }
 
   function closeAdhocPartPanel() {

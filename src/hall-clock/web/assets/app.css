@@ -69,6 +69,16 @@ textarea {
   font: inherit;
 }
 
+/* iOS zooms the whole page into any focused field whose text is under 16px,
+   and the page then needs sideways panning until the keyboard goes away.
+   Keep every field at the threshold; buttons stay inherited — focusing a
+   button never zooms. */
+input,
+select,
+textarea {
+  font-size: 16px;
+}
+
 .hidden {
   display: none !important;
 }
