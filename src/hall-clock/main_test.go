@@ -811,6 +811,61 @@ func TestAdhocPartAddsTemporaryPartWithoutSavingConfig(t *testing.T) {
 	}
 }
 
+// A mistyped or no-longer-needed ad-hoc item can be removed from the picker.
+// Saved programme items cannot — those are edited in /setup — and the item
+// the clock is actively timing is protected until the timer is idle.
+func TestRemovePartDisposesOfTemporaryItemsOnly(t *testing.T) {
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	mux, err := srv.routes("")
+	if err != nil {
+		t.Fatal(err)
+	}
+	do := func(path, body string, want int) State {
+		req := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		req.Header.Set("X-Wall-Clock-Token", srv.config.ControlToken)
+		res := httptest.NewRecorder()
+		mux.ServeHTTP(res, req)
+		if res.Code != want {
+			t.Fatalf("%s returned %d (want %d): %s", path, res.Code, want, res.Body.String())
+		}
+		var state State
+		if want == http.StatusOK {
+			if err := json.Unmarshal(res.Body.Bytes(), &state); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return state
+	}
+
+	savedID := srv.talks[0].ID
+	do("/api/control/remove-part", fmt.Sprintf(`{"talkId":%d}`, savedID), http.StatusConflict)
+
+	before := len(srv.talks)
+	added := do("/api/control/adhoc-part", `{"talkId":0,"title":"Announcements","seconds":300,"afterTalkId":0}`, http.StatusOK)
+	tempID := added.Schedule[0].ID
+	if !added.Schedule[0].Temporary {
+		t.Fatalf("expected a temporary part at the start, got %+v", added.Schedule[0])
+	}
+
+	removed := do("/api/control/remove-part", fmt.Sprintf(`{"talkId":%d}`, tempID), http.StatusOK)
+	if len(removed.Schedule) != before {
+		t.Fatalf("expected the schedule back at %d parts, got %d", before, len(removed.Schedule))
+	}
+
+	// Removing the item the clock points at (while idle) hands the selection
+	// to the item now in its slot instead of leaving it dangling.
+	added = do("/api/control/adhoc-part", `{"title":"Note","seconds":120,"afterTalkId":0}`, http.StatusOK)
+	tempID = added.Schedule[0].ID
+	do("/api/control/select", fmt.Sprintf(`{"talkId":%d}`, tempID), http.StatusOK)
+	after := do("/api/control/remove-part", fmt.Sprintf(`{"talkId":%d}`, tempID), http.StatusOK)
+	if after.CurrentTalkID != after.Schedule[0].ID {
+		t.Fatalf("expected the selection to land on the first item, got %d", after.CurrentTalkID)
+	}
+}
+
 // The operator chooses the position before the item exists: 0 pins it to the
 // start of the meeting, a talk id puts it right after that item, and either
 // way the clock's selection stays wherever it was.

@@ -254,6 +254,55 @@ func (s *server) handleAdhocPart(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, state)
 }
 
+func (s *server) handleRemovePart(w http.ResponseWriter, r *http.Request) {
+	var body struct {
+		TalkID int `json:"talkId"`
+	}
+	if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+		http.Error(w, "invalid JSON body", http.StatusBadRequest)
+		return
+	}
+
+	s.mu.Lock()
+	idx := -1
+	for i, talk := range s.talks {
+		if talk.ID == body.TalkID {
+			idx = i
+			break
+		}
+	}
+	if idx < 0 {
+		s.mu.Unlock()
+		http.Error(w, "talk not found", http.StatusNotFound)
+		return
+	}
+	// The saved programme is edited in /setup; only the ad-hoc additions are
+	// disposable from the controller.
+	if !s.talks[idx].Temporary {
+		s.mu.Unlock()
+		http.Error(w, "only temporary items can be removed here", http.StatusConflict)
+		return
+	}
+	if s.talks[idx].ID == s.state.CurrentTalkID && s.state.Status != StatusIdle {
+		s.mu.Unlock()
+		http.Error(w, "cannot remove the item on the clock", http.StatusConflict)
+		return
+	}
+	removedCurrent := s.talks[idx].ID == s.state.CurrentTalkID
+	s.talks = append(s.talks[:idx], s.talks[idx+1:]...)
+	s.state.Schedule = s.talks
+	if removedCurrent && len(s.talks) > 0 {
+		// The item the clock pointed at is gone; point at the one that now
+		// holds its slot in the programme (or the new last item).
+		s.selectTalkLocked(s.talks[min(idx, len(s.talks)-1)].ID)
+	}
+	state := s.snapshotLocked()
+	s.mu.Unlock()
+
+	s.broadcast(state)
+	writeJSON(w, state)
+}
+
 func (s *server) handleCircuitOverseer(w http.ResponseWriter, r *http.Request) {
 	var body struct {
 		On bool `json:"on"`

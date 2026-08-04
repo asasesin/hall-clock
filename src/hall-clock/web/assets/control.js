@@ -329,6 +329,19 @@
           <strong>${Math.round(talk.durationSeconds / 60)} min</strong>
         `;
         row.appendChild(button);
+
+        // Only the ad-hoc additions are disposable from here; the saved
+        // programme is edited in /setup.
+        if (talk.temporary) {
+          const removeButton = document.createElement("button");
+          removeButton.className = "part-picker-remove";
+          removeButton.type = "button";
+          removeButton.dataset.removeTalkId = String(talk.id);
+          removeButton.textContent = "Remove";
+          removeButton.setAttribute("aria-label", `Remove ${talk.title}`);
+          row.appendChild(removeButton);
+        }
+
         partPickerList.appendChild(row);
       });
       if (armedTalkId !== undefined) {
@@ -459,6 +472,13 @@
   });
   partPickerBtn.addEventListener("click", togglePartPicker);
   partPickerList.addEventListener("click", (event) => {
+    const removeButton = event.target.closest("[data-remove-talk-id]");
+    if (removeButton) {
+      guardedPartCommand(removeButton, "Sure?", () => {
+        command("/api/control/remove-part", { talkId: Number(removeButton.dataset.removeTalkId) });
+      });
+      return;
+    }
     const button = event.target.closest("[data-talk-id]");
     if (!button) return;
     guardedPartCommand(button, "Confirm item", () => {

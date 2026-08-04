@@ -274,6 +274,7 @@ func (s *server) routes(publicURL string) (*http.ServeMux, error) {
 	mux.HandleFunc("POST /api/control/adjust", s.protect(s.handleAdjust))
 	mux.HandleFunc("POST /api/control/time", s.protect(s.handleSetTime))
 	mux.HandleFunc("POST /api/control/select", s.protect(s.handleSelect))
+	mux.HandleFunc("POST /api/control/remove-part", s.protect(s.handleRemovePart))
 	mux.HandleFunc("POST /api/control/adhoc-part", s.protect(s.handleAdhocPart))
 	mux.HandleFunc("POST /api/control/circuit-overseer", s.protect(s.handleCircuitOverseer))
 	mux.HandleFunc("POST /api/control/midweek-language", s.protect(s.handleMidweekLanguage))

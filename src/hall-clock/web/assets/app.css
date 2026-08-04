@@ -711,6 +711,27 @@ textarea {
   align-items: stretch;
 }
 
+/* Ad-hoc rows carry a Remove beside the item; saved rows stay full width. */
+.part-picker-row:has(.part-picker-remove) {
+  grid-template-columns: minmax(0, 1fr) auto;
+}
+
+.part-picker-remove {
+  border: 1px solid rgba(244, 95, 87, 0.35);
+  border-radius: 10px;
+  padding: 0 14px;
+  background: transparent;
+  color: var(--red);
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.part-picker-remove.armed {
+  border-color: var(--red);
+  background: rgba(244, 95, 87, 0.15);
+}
+
 .part-picker-option {
   display: grid;
   width: 100%;
@@ -1878,6 +1899,14 @@ textarea {
   .part-picker-option {
     grid-template-columns: 1fr;
     gap: 4px;
+  }
+
+  .part-picker-row:has(.part-picker-remove) {
+    grid-template-columns: 1fr;
+  }
+
+  .part-picker-remove {
+    min-height: 42px;
   }
 
 }
