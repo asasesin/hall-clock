@@ -103,3 +103,35 @@ public listing:
 Invite member Google accounts (or a Google Group) as testers; they install
 from the Play link like any app and get updates automatically on the rare
 occasion the shell changes.
+
+## APK distribution
+
+For anyone who cannot use Play, `./gradlew assembleRelease` produces a signed
+APK at `app/build/outputs/apk/release/app-release.apk`. Rename it to
+`hall-clock.apk` and attach it to a GitHub release.
+
+**Attach it to an existing release. Never publish a release for the APK
+alone.** `hall-clock-update.sh` resolves updates through
+`/repos/<repo>/releases/latest`, which is whichever release published most
+recently, regardless of its tag. An APK-only release therefore becomes what
+every Pi checks, and they would look in it for a Linux binary that is not
+there — an outage across every hall, caused by shipping a phone app.
+
+Hand out the **pinned** asset URL, not the `latest` alias:
+
+```text
+https://github.com/nuxcor/hall-clock/releases/download/<tag>/hall-clock.apk
+```
+
+`releases/latest/download/hall-clock.apk` looks tidier and breaks almost
+immediately: CI cuts a release on every merge to `main`, none of those builds
+carry an APK, and the alias starts 404ing on the next server change. A pinned
+URL keeps working forever, and the shell changes rarely enough that reissuing
+the link is cheaper than teaching CI to sign Android builds — which would mean
+putting the upload keystore into Actions secrets.
+
+A sideloaded APK and a Play install **cannot upgrade to one another.** Play App
+Signing is mandatory for new apps, so Google re-signs the AAB with a key that
+is not the upload key this APK is signed with, and Android refuses to swap one
+for the other. A phone moving between the two has to uninstall first, losing
+its saved clock address and pairing token. Pick one channel per phone.
