@@ -2119,3 +2119,44 @@ textarea {
     opacity: 0.25;
   }
 }
+
+/* Landscape puts the controls below the fold. A phone turned sideways has only
+   ~450px of height, which the timer card alone very nearly fills, so Start and
+   Next — the two things an operator reaches for mid-meeting — end up needing a
+   scroll. The page has the opposite problem horizontally: a single column
+   capped at 940px leaves the rest of the width empty.
+
+   So in landscape, spend the width to buy back the height: timer on the left,
+   controls stacked on the right. Keyed on orientation rather than width alone
+   because it is short viewports that are broken, not wide ones — a tablet in
+   portrait has room to spare and should keep the single column.
+
+   Notices and the Setup footer span both columns. Hidden notices are
+   `display: none`, so they take no grid cell and the rows close up. */
+@media (orientation: landscape) and (min-width: 700px) {
+  .control-page .phone-shell {
+    width: min(100%, 1200px);
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+    column-gap: 16px;
+  }
+
+  .control-page .notice,
+  .control-page .controller-admin {
+    grid-column: 1 / -1;
+  }
+
+  /* Spans both rows so the right-hand cards stack against each other. Left to
+     one row, the timer alone would size row 1, and the second card on the right
+     would start below the timer's full height with a gap above it. */
+  .control-page .compact-timer {
+    grid-column: 1;
+    grid-row: span 2;
+  }
+
+  /* Both forced into column 2, so auto-flow stacks them down the right rather
+     than wrapping the second one back under the timer. */
+  .control-page .control-panel,
+  .control-page #partsPanel {
+    grid-column: 2;
+  }
+}
