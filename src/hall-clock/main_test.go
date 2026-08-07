@@ -536,6 +536,34 @@ func TestPortlessLocalhostIgnoresStaleWallclockOverride(t *testing.T) {
 	}
 }
 
+func TestLoopbackRequestIgnoresAnyRemoteOverride(t *testing.T) {
+	// The stale-config guard is not about one magic hostname: a renamed Pi
+	// (hall-b.local) or a typo saved on the setup page is just as unreachable
+	// from a laptop browsing localhost, and the config value now outranks the
+	// -public-url flag, so nothing else would catch it.
+	for _, cfg := range []string{
+		"http://hallclock.local:8080/control",
+		"http://hall-b.local",
+		"https://hallclok.example.com",
+	} {
+		for _, host := range []string{"localhost", "127.0.0.1", "[::1]", "127.0.0.1:8480"} {
+			r := httptest.NewRequest(http.MethodGet, "/api/pairing", nil)
+			r.Host = host
+			if shouldUseConfiguredAdvertisedURL(cfg, r) {
+				t.Fatalf("config %q from host %q: expected the unreachable override to be ignored", cfg, host)
+			}
+		}
+	}
+
+	// A loopback URL saved deliberately is not stale — it is what the operator
+	// is looking at, so it must survive.
+	r := httptest.NewRequest(http.MethodGet, "/api/pairing", nil)
+	r.Host = "localhost:8480"
+	if !shouldUseConfiguredAdvertisedURL("http://localhost:8480", r) {
+		t.Fatal("expected a loopback override to be kept for a loopback request")
+	}
+}
+
 func TestPairingEndpointUsesSavedAdvertisedURLWhenCLIFlagUnset(t *testing.T) {
 	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
 	if err != nil {
@@ -558,6 +586,34 @@ func TestPairingEndpointUsesSavedAdvertisedURLWhenCLIFlagUnset(t *testing.T) {
 	}
 	if !strings.Contains(res.Body.String(), "http://hallclock.local/control\"") {
 		t.Fatalf("expected saved advertised URL, got %s", res.Body.String())
+	}
+}
+
+func TestPairingEndpointPrefersSavedAdvertisedURLOverCLIFlag(t *testing.T) {
+	// The systemd unit always passes -public-url http://<host>.local, so the
+	// setup-page URL must outrank the flag or it could never take effect on an
+	// appliance — e.g. advertising an HTTPS domain for Android installs.
+	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv.config.AdvertisedBaseURL = "https://hallclock.example.com"
+
+	mux, err := srv.routes("http://hallclock.local")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	req := httptest.NewRequest(http.MethodGet, "/api/pairing", nil)
+	req.Host = "hallclock.example.com"
+	res := httptest.NewRecorder()
+	mux.ServeHTTP(res, req)
+
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected OK pairing response, got %d", res.Code)
+	}
+	if !strings.Contains(res.Body.String(), "https://hallclock.example.com\"") {
+		t.Fatalf("expected saved advertised URL to beat the CLI flag, got %s", res.Body.String())
 	}
 }
 
