@@ -512,6 +512,24 @@ textarea {
   color: var(--green);
 }
 
+/* Which hall this controller is driving. Two halls on one LAN mean a phone can
+   reach the wrong Pi and look entirely normal doing it — the only other tell is
+   the display in the room failing to move, which lands on whoever is *not*
+   holding the phone. A bordered pill rather than one more muted line, so it
+   reads as identity instead of another status message, and pushed to the far
+   edge so it never competes with the meeting type for the same glance. */
+.hall-chip {
+  margin: 4px 0 0 auto;
+  padding: 3px 10px;
+  border: 1px solid var(--line-strong);
+  border-radius: 999px;
+  color: var(--muted);
+  font-size: 12px;
+  font-weight: 700;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
 
 
 /* The item being timed, named right under its clock so "now" and "next" read
@@ -642,11 +660,9 @@ textarea {
 }
 
 .part-picker-button {
-  display: grid;
+  display: flex;
   width: 100%;
   min-height: 48px;
-  grid-template-columns: minmax(0, 1fr) auto;
-  gap: 12px;
   align-items: center;
   border: 1px solid var(--line-strong);
   border-radius: 12px;
@@ -682,12 +698,6 @@ textarea {
 .part-picker-option:focus-visible {
   outline: 2px solid var(--blue);
   outline-offset: 2px;
-}
-
-.part-picker-button .part-duration {
-  color: var(--muted);
-  font-size: 13px;
-  white-space: nowrap;
 }
 
 .part-picker-list {
@@ -933,6 +943,7 @@ textarea {
    row rather than reserve it -- a lone invisible button is just a hole, and
    these two hand over to each other at the same point anyway. */
 .advance-action-row:has(> #endBtn.slot-hidden),
+.advance-action-row:has(> #resetBtn.slot-hidden),
 .advance-action-row:has(> #nextBtn.slot-hidden) {
   display: none;
 }
@@ -1102,6 +1113,31 @@ textarea {
 /* The meeting is over: state it plainly rather than dangling an action. */
 .action-next:disabled {
   border-style: dashed;
+}
+
+/* Reset part: for the false start -- Start tapped before the speaker reached the
+   lectern. Quieter than Next, because it is the rarer of the two and must never
+   be the button a thumb finds by accident; it only appears while a part is
+   actually timing, since resetting an idle part changes nothing. */
+.action-reset {
+  min-height: 46px;
+  border-color: rgba(149, 160, 173, 0.32);
+  background: linear-gradient(180deg, #212932, #1a212a);
+  color: var(--muted);
+  font-size: 15px;
+}
+
+.action-reset:hover:not(:disabled) {
+  border-color: rgba(149, 160, 173, 0.46);
+  color: var(--text);
+}
+
+.action-reset.armed {
+  border-color: rgba(246, 196, 83, 0.55);
+  background: linear-gradient(180deg, #2a2416, #1d180f);
+  color: var(--amber);
+  outline: 2px solid rgba(246, 196, 83, 0.45);
+  outline-offset: 2px;
 }
 
 /* End meeting: a full-width, quiet close -- present and clearly tappable while a
