@@ -1,0 +1,34 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Themed-icon layer (Android 13+). The launcher discards these colours and
+     tints by the wallpaper, so the colour separation that carries the normal
+     icon — grey ticks against green hands — collapses to nothing. Same clock,
+     redrawn to read as one silhouette: heavier strokes, and the ticks dropped
+     to keep the face from filling in at launcher size. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108"
+    android:tint="#ffffff">
+    <!-- Face ring -->
+    <path
+        android:pathData="M54,31 a23,23 0 1,1 -0.01,0 Z"
+        android:strokeColor="#ffffff"
+        android:strokeWidth="4"
+        android:fillColor="#00000000" />
+    <!-- Hour hand (upper left) and minute hand (upper right) -->
+    <path
+        android:pathData="M54,54 L44.6,47.4"
+        android:strokeColor="#ffffff"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M54,54 L68.4,45"
+        android:strokeColor="#ffffff"
+        android:strokeWidth="4.5"
+        android:strokeLineCap="round" />
+    <!-- Center hub -->
+    <path
+        android:pathData="M54,50.5 a3.5,3.5 0 1,1 -0.01,0 Z"
+        android:fillColor="#ffffff" />
+</vector>

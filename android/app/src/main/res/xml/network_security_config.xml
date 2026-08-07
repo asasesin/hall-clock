@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The clock is plain HTTP on the hall LAN by design (no warning-free HTTPS on
+     a .local name — see deploy/raspberry-pi/README.md "Why not HTTPS?"), and
+     Android blocks cleartext by default since API 28.
+
+     Cleartext is permitted app-wide rather than per-domain because a
+     domain-config cannot express what this app actually connects to: any
+     single-label .local name (hallclock.local, hallclock-b.local, whatever a
+     hall renamed its Pi to) or a raw LAN IP typed in as the fallback for phones
+     whose Android cannot resolve mDNS. The app only ever loads the one
+     configured clock host, so the practical exposure is the same. -->
+<network-security-config xmlns:tools="http://schemas.android.com/tools">
+    <!-- Suppressed because it is the whole point of the file; left un-suppressed
+         it is a standing warning nobody reads, which hides the next real one. -->
+    <base-config cleartextTrafficPermitted="true" tools:ignore="InsecureBaseConfiguration">
+        <trust-anchors>
+            <certificates src="system" />
+        </trust-anchors>
+    </base-config>
+</network-security-config>

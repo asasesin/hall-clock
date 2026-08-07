@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Vector copy of the web app's icon (icon-control-512.png): white face,
+     grey quarter ticks, green hands at ten past ten. Colors sampled from the
+     PNG so Safari-installed iOS icons and this one match. Geometry sits inside
+     the 66dp adaptive-icon safe zone of the 108dp canvas. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="108dp"
+    android:height="108dp"
+    android:viewportWidth="108"
+    android:viewportHeight="108">
+    <!-- Face ring -->
+    <path
+        android:pathData="M54,31 a23,23 0 1,1 -0.01,0 Z"
+        android:strokeColor="#f5f7fa"
+        android:strokeWidth="3"
+        android:fillColor="#00000000" />
+    <!-- Quarter ticks -->
+    <path android:pathData="M54,35 L54,39" android:strokeColor="#95a0ad" android:strokeWidth="2" android:strokeLineCap="round" />
+    <path android:pathData="M73,54 L69,54" android:strokeColor="#95a0ad" android:strokeWidth="2" android:strokeLineCap="round" />
+    <path android:pathData="M54,73 L54,69" android:strokeColor="#95a0ad" android:strokeWidth="2" android:strokeLineCap="round" />
+    <path android:pathData="M35,54 L39,54" android:strokeColor="#95a0ad" android:strokeWidth="2" android:strokeLineCap="round" />
+    <!-- Hour hand (upper left) and minute hand (upper right) -->
+    <path
+        android:pathData="M54,54 L44.6,47.4"
+        android:strokeColor="#44dc95"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round" />
+    <path
+        android:pathData="M54,54 L68.4,45"
+        android:strokeColor="#44dc95"
+        android:strokeWidth="3.5"
+        android:strokeLineCap="round" />
+    <!-- Center hub -->
+    <path
+        android:pathData="M54,51 a3,3 0 1,1 -0.01,0 Z"
+        android:fillColor="#44dc95" />
+</vector>

@@ -111,6 +111,10 @@ the Caddyfile for why HTTP is the right call here):
 - **Android**: Chrome only offers a full standalone install over HTTPS, so Add
   to Home Screen creates a shortcut that opens in the browser. Same icon on the
   home screen, one tap to the controller — just with the address bar visible.
+  For a real standalone install there is a thin WebView shell in
+  [android/](android/README.md), distributed through a closed Play testing
+  track. It also holds the screen awake for the length of a meeting, which the
+  web app cannot do for itself over plain HTTP.
 
 There is no service worker: one would not register over plain HTTP, and the app
 is only meaningful while it can reach the Pi anyway.
@@ -167,6 +171,7 @@ src/hall-clock/        single Go binary + embedded web/ assets
   autoimport.go        WOL weekly-timing import
   pairing.go           token, PIN pairing, QR, advertised-URL resolution
   model.go             core types
+android/               thin WebView shell (Play closed track) — see its README
 deploy/raspberry-pi/   systemd + Caddy appliance install
 deploy/local/          run the same stack on a Mac
 scripts/               dev helpers

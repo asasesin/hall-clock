@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Same dark gradient as the web app's icon-control-512.png, so the Android
+     launcher icon is indistinguishable from the one Safari installs on iOS. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient
+        android:angle="-45"
+        android:startColor="#171f27"
+        android:endColor="#0b1014" />
+</shape>
