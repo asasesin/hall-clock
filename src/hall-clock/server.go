@@ -349,6 +349,7 @@ func (s *server) handlePairing(publicURL string) http.HandlerFunc {
 		configuredURL := s.config.AdvertisedBaseURL
 		open := s.pairingOpenLocked(now)
 		pinSet := s.config.ControlPIN != ""
+		pinLength := len([]rune(s.config.ControlPIN))
 		expiresAt := s.pairingUntil
 		s.mu.Unlock()
 
@@ -360,6 +361,14 @@ func (s *server) handlePairing(publicURL string) http.HandlerFunc {
 			"pairingOpen":   open,
 			"pinRequired":   !open,
 			"pinConfigured": pinSet,
+		}
+		// The PIN's length lets the pairing dialog claim on the final digit
+		// instead of asking for a redundant button tap. Within this appliance's
+		// trust model that reveals nothing worth guarding: this endpoint is
+		// deliberately unauthenticated (see README), and the guessing lockout —
+		// not secrecy about length — is what throttles a wrong PIN.
+		if pinSet {
+			body["pinLength"] = pinLength
 		}
 		if open {
 			body["pairingExpiresAt"] = expiresAt

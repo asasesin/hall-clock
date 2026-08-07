@@ -139,6 +139,40 @@ func TestPINIsPersistedAndVerifies(t *testing.T) {
 	}
 }
 
+// The pairing status advertises the PIN's length (not the PIN) so the dialog
+// can claim on the final digit instead of demanding a button tap.
+func TestPairingStatusReportsPINLength(t *testing.T) {
+	srv, mux := newSecuredTestServer(t)
+	_ = srv
+
+	res := httptest.NewRecorder()
+	mux.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/api/pairing", nil))
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected OK pairing status, got %d", res.Code)
+	}
+	if !strings.Contains(res.Body.String(), `"pinLength":6`) {
+		t.Fatalf("expected pinLength for a set PIN, got %s", res.Body.String())
+	}
+	if strings.Contains(res.Body.String(), testPIN) {
+		t.Fatalf("pairing status leaked the PIN itself: %s", res.Body.String())
+	}
+}
+
+// Before a PIN exists there is no length to advertise — the field would only
+// invite the dialog to auto-claim against a PIN nobody can type.
+func TestPairingStatusOmitsPINLengthWhenUnset(t *testing.T) {
+	_, mux := newPairingTestServer(t)
+
+	res := httptest.NewRecorder()
+	mux.ServeHTTP(res, httptest.NewRequest(http.MethodGet, "/api/pairing", nil))
+	if res.Code != http.StatusOK {
+		t.Fatalf("expected OK pairing status, got %d", res.Code)
+	}
+	if strings.Contains(res.Body.String(), "pinLength") {
+		t.Fatalf("expected no pinLength before a PIN is set, got %s", res.Body.String())
+	}
+}
+
 // A paired controller can read the PIN back — that is the point of storing it —
 // but an unpaired caller must not.
 func TestShowPINRequiresAToken(t *testing.T) {
