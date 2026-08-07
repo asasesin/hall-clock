@@ -37,6 +37,7 @@
       <section class="compact-timer">
         <div class="timer-meta">
           <p id="meetingType" class="meeting-chip">Midweek meeting</p>
+          <p id="hallName" class="hall-chip hidden"></p>
         </div>
         <div id="timeValue" class="control-time">00:00</div>
         <p id="nowPartTitle" class="card-now hidden"></p>
@@ -69,6 +70,10 @@
           </div>
 
           <div class="advance-action-row">
+            <button id="resetBtn" class="action action-reset slot-hidden" type="button">Reset part</button>
+          </div>
+
+          <div class="advance-action-row">
             <button id="endBtn" class="action action-end slot-hidden" type="button">End meeting</button>
           </div>
         </div>
@@ -79,8 +84,7 @@
           <span class="control-field-label">Jump to item</span>
           <div class="current-item-row">
             <button id="partPickerBtn" class="part-picker-button" type="button" aria-expanded="false" aria-controls="partPickerList">
-              <span id="currentPartTitle">Select item</span>
-              <span id="currentPartDuration" class="part-duration"></span>
+              Select item
             </button>
             <button id="adhocPartBtn" class="temporary-part-button" type="button" aria-expanded="false" aria-controls="adhocPartPanel" aria-label="Add temporary item" title="Add temporary item">
               <span class="temporary-part-icon" aria-hidden="true">+</span>

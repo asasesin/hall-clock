@@ -1,0 +1,25 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Every value here is copied from the :root custom properties in
+     web/assets/app.css. The native chrome only ever appears where the
+     controller would have been (the first-run dialog, the error screen), so
+     anything that is merely "a dark theme" reads as a different app bolted on.
+     Keep these in step with the CSS; each comment names the token it mirrors,
+     minus the leading dashes XML will not let us write. -->
+<resources>
+    <color name="clock_background">#07090b</color>      <!-- bg -->
+    <color name="clock_panel">#11161b</color>           <!-- panel -->
+    <color name="clock_panel_2">#182028</color>         <!-- panel-2 -->
+    <color name="clock_panel_3">#202832</color>         <!-- .action gradient end -->
+    <color name="clock_foreground">#f5f7fa</color>      <!-- text -->
+    <color name="clock_muted">#95a0ad</color>           <!-- muted -->
+    <color name="clock_accent">#6f9cff</color>          <!-- blue -->
+    <color name="clock_line_strong">#24ffffff</color>   <!-- line-strong, 14% white -->
+
+    <!-- .action-primary: a green pill, not an accent-tinted rectangle. -->
+    <color name="clock_primary_start">#46e79a</color>
+    <color name="clock_primary_end">#2ecb7c</color>
+    <color name="clock_primary_text">#06120b</color>
+
+    <color name="clock_ripple_on_dark">#26ffffff</color>
+    <color name="clock_ripple_on_green">#33061209</color>
+</resources>

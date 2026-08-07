@@ -3,6 +3,7 @@
   const offlineNotice = document.getElementById("offlineNotice");
   const commandNotice = document.getElementById("commandNotice");
   const meetingType = document.getElementById("meetingType");
+  const hallName = document.getElementById("hallName");
   const timeValue = document.getElementById("timeValue");
   const partPickerBtn = document.getElementById("partPickerBtn");
   const partPickerList = document.getElementById("partPickerList");
@@ -12,11 +13,10 @@
   const adhocPartAfterSelect = document.getElementById("adhocPartAfterSelect");
   const adhocPartMinutesInput = document.getElementById("adhocPartMinutesInput");
   const cancelAdhocPartBtn = document.getElementById("cancelAdhocPartBtn");
-  const currentPartTitle = document.getElementById("currentPartTitle");
-  const currentPartDuration = document.getElementById("currentPartDuration");
   const startBtn = document.getElementById("startBtn");
   const nextBtn = document.getElementById("nextBtn");
   const endBtn = document.getElementById("endBtn");
+  const resetBtn = document.getElementById("resetBtn");
   const nowPartTitle = document.getElementById("nowPartTitle");
   const meetingOvertime = document.getElementById("meetingOvertime");
   const nextPart = document.getElementById("nextPart");
@@ -27,6 +27,7 @@
   let scheduleKey = "";
   let nextArmTimeout = null;
   let endArmTimeout = null;
+  let resetArmTimeout = null;
   let partArmTimeout = null;
   let coArmTimeout = null;
   let latestStatus = "idle";
@@ -74,6 +75,18 @@
     latestState = state;
     latestStatus = state.status;
     document.title = `${state.deviceName || "Hall Clock"} Control`;
+    // The title alone is not enough: the Android shell runs the page full
+    // screen with no title bar, so there the name is invisible.
+    //
+    // An unnamed hall shows nothing rather than the generic default. The server
+    // coerces a blank name to "Hall Clock" (server.go, handlers.go), so "unset"
+    // reaches us as that string, not "" — and a label identical in every hall
+    // looks like identity while answering the question wrongly, which is worse
+    // than staying quiet and letting the operator ask. Naming both Pis on the
+    // setup page is what makes this pill worth anything.
+    const named = state.deviceName && state.deviceName !== "Hall Clock";
+    hallName.textContent = named ? state.deviceName : "";
+    hallName.classList.toggle("hidden", !named);
     const meetingLabel = state.meetingType === "weekend" ? "Weekend meeting" : "Midweek meeting";
     meetingType.textContent = state.circuitOverseer ? `${meetingLabel} · CO visit` : meetingLabel;
     meetingType.classList.toggle("co-active", Boolean(state.circuitOverseer));
@@ -99,6 +112,7 @@
       disarmPartButtons();
       // No live timer left to protect, so the confirmation is moot.
       disarmNext();
+      disarmReset();
     }
     coToggle.setAttribute("aria-checked", state.circuitOverseer ? "true" : "false");
     const appliedLanguage = state.midweekLanguage || languageFromSchedule(state.schedule) || "en";
@@ -186,6 +200,17 @@
     nextBtn.classList.toggle("slot-hidden", atEnd);
     nextBtn.disabled = busy || atEnd;
     endBtn.disabled = busy;
+
+    // Reset only exists while a part is actually on the clock: resetting an
+    // idle part puts it back where it already is, so the button would be a
+    // no-op wearing the look of an action. Sits below Next rather than in the
+    // slot Start vacates, so the stray second tap after Start still lands on
+    // Next -- the control the operator was aiming at.
+    resetBtn.classList.toggle("slot-hidden", !timing);
+    resetBtn.disabled = busy;
+    if ((!timing || busy) && resetBtn.classList.contains("armed")) {
+      disarmReset();
+    }
     if (!nextBtn.classList.contains("armed")) {
       nextBtn.textContent = "Next part";
     }
@@ -354,11 +379,17 @@
         }
       }
     }
-    const current = schedule.find((talk) => talk.id === currentId);
-    currentPartTitle.textContent = current ? current.title : "Select item";
-    currentPartDuration.textContent = current ? `${Math.round(current.durationSeconds / 60)} min` : "";
+    // The button stays a plain "Select item" affordance rather than echoing
+    // the current item: the timer card right above already names it, and the
+    // opened list marks it as selected — a third copy is noise.
+    // aria-current, not just the class: with the button no longer naming the
+    // current item, the highlight in the list is the only thing left saying
+    // which one it is, and a highlight alone says nothing out loud.
     partPickerList.querySelectorAll(".part-picker-option").forEach((button) => {
-      button.classList.toggle("selected", button.dataset.talkId === String(currentId));
+      const selected = button.dataset.talkId === String(currentId);
+      button.classList.toggle("selected", selected);
+      if (selected) button.setAttribute("aria-current", "true");
+      else button.removeAttribute("aria-current");
     });
   }
 
@@ -423,6 +454,13 @@
     nextArmTimeout = null;
     nextBtn.classList.remove("armed");
     nextBtn.textContent = "Next part";
+  }
+
+  function disarmReset() {
+    clearTimeout(resetArmTimeout);
+    resetArmTimeout = null;
+    resetBtn.classList.remove("armed");
+    resetBtn.textContent = "Reset part";
   }
 
   function disarmPartButtons() {
@@ -553,6 +591,29 @@
     disarmNext();
     advanceCommand("/api/control/next");
   });
+  // Selecting the part that is already current, not /api/control/reset: that
+  // route is a documented alias for Next (see handleReset) and would advance
+  // the meeting. handleSelect is the one that treats re-picking the current
+  // item as "a restart, not a departure", so the seconds a false start burned
+  // never reach the meeting's overtime tally.
+  //
+  // Always two taps, with no idle shortcut: unlike Next, Reset is only on
+  // screen while a part is running or paused, so every tap of it is throwing
+  // away elapsed time somebody is watching on the hall display.
+  resetBtn.addEventListener("click", () => {
+    if (!resetBtn.classList.contains("armed")) {
+      disarmPartButtons();
+      disarmNext();
+      resetBtn.classList.add("armed");
+      resetBtn.textContent = "Confirm reset";
+      resetArmTimeout = setTimeout(disarmReset, ARM_TIMEOUT_MS);
+      return;
+    }
+    disarmReset();
+    const talkId = latestState && latestState.currentTalkId;
+    if (!talkId) return;
+    command("/api/control/select", { talkId });
+  });
   // Turning CO mode on replaces the whole programme, so it arms like End
   // does rather than flipping on a single tap. Turning it off stays one tap:
   // undoing a mistaken enable should be quicker than making one.
@@ -637,8 +698,12 @@
     const dismiss = document.getElementById("installHintDismiss");
     if (!hint || !text || !dismiss) return;
     const DISMISSED_KEY = "wallClockInstallHintDismissed";
+    // "; wv)" is Android's WebView marker: the page is already inside an app
+    // shell (the android/ wrapper), which is as installed as it gets — telling
+    // it to open a browser menu it doesn't have would just confuse.
     const standalone = window.matchMedia("(display-mode: standalone)").matches ||
-      window.navigator.standalone === true;
+      window.navigator.standalone === true ||
+      /; wv\)/.test(navigator.userAgent);
     let dismissed = false;
     try {
       dismissed = localStorage.getItem(DISMISSED_KEY) === "1";

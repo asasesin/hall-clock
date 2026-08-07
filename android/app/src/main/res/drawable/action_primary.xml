@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- The controller's .action-primary: a 56dp green pill. Android's angle 270 is
+     CSS's linear-gradient(180deg, …) — top to bottom. -->
+<ripple xmlns:android="http://schemas.android.com/apk/res/android"
+    android:color="@color/clock_ripple_on_green">
+    <item>
+        <shape android:shape="rectangle">
+            <corners android:radius="28dp" />
+            <gradient
+                android:angle="270"
+                android:startColor="@color/clock_primary_start"
+                android:endColor="@color/clock_primary_end" />
+        </shape>
+    </item>
+</ripple>

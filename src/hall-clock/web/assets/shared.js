@@ -155,7 +155,9 @@
   // showPinPrompt resolves with a token once the operator enters the PIN. It
   // never rejects: a page that cannot pair should sit on the prompt rather than
   // fall through to a controller whose every button would fail with a 401.
-  function showPinPrompt() {
+  // When the PIN's length is known (from /api/pairing), the final digit claims
+  // by itself; the button stays for the cases where it is not.
+  function showPinPrompt(pinLength) {
     return new Promise((resolve) => {
       const backdrop = buildPinPrompt();
       const input = backdrop.querySelector(".pairing-input");
@@ -169,11 +171,14 @@
         errorEl.classList.toggle("hidden", !message);
       }
 
+      let attempting = false;
       async function attempt() {
+        if (attempting) return;
         if (!input.value) {
           showError("Type the PIN first.");
           return;
         }
+        attempting = true;
         submit.disabled = true;
         try {
           const token = await claimPairing(input.value);
@@ -195,6 +200,7 @@
             showError("Could not reach the clock. Check the wifi and try again.");
           }
         } finally {
+          attempting = false;
           submit.disabled = false;
           input.focus();
         }
@@ -206,6 +212,14 @@
           attempt();
         }
       });
+      // Claim on the last digit. A failed try clears the field (see attempt),
+      // so retyping re-arms this without ever firing on a partial PIN — and
+      // the lockout still backstops deliberate guessing.
+      if (Number.isInteger(pinLength) && pinLength > 0) {
+        input.addEventListener("input", () => {
+          if ([...input.value].length === pinLength) attempt();
+        });
+      }
       submit.addEventListener("click", attempt);
     });
   }
@@ -220,6 +234,7 @@
     if (existing) {
       clearToken();
     }
+    let pinLength = 0;
     try {
       const status = await pairingStatus();
       if (status.pairingOpen) {
@@ -229,12 +244,13 @@
       if (!status.pinConfigured) {
         return showNoPinPrompt();
       }
+      pinLength = status.pinLength;
     } catch (error) {
       // Fall through to the prompt: an unreachable status endpoint should not
       // stop somebody who knows the PIN from typing it.
       console.error(error);
     }
-    return showPinPrompt();
+    return showPinPrompt(pinLength);
   }
 
   // showPairingPIN reads the PIN in force. Needs a token, so only an

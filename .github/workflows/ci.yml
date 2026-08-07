@@ -24,3 +24,33 @@ jobs:
 
       - name: Build
         run: go build ./...
+
+  # The Android shell is a separate toolchain that nothing else compiles, so
+  # without this a change that stops building would only surface whenever
+  # somebody next opened Android Studio.
+  android:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Set up JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "17"
+
+      - name: Set up Android SDK
+        uses: android-actions/setup-android@v3
+
+      # No gradle-version here: the committed wrapper pins it, so CI and a
+      # developer's machine cannot drift onto different Gradle versions. That
+      # matters — AGP 8.13 does not run on Gradle 9.6+.
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v4
+
+      # assembleRelease covers what assembleDebug does not: R8 shrinking and
+      # lintVitalRelease, which is where a broken shell would otherwise only
+      # surface at Play upload time.
+      - name: Assemble and lint
+        working-directory: android
+        run: ./gradlew assembleDebug assembleRelease lintDebug --no-daemon

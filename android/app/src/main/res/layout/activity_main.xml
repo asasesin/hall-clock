@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- <merge>, not a FrameLayout: setContentView already gives us one, and a
+     second adds a view level that measures the whole tree twice for nothing. -->
+<merge xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <!-- No background here: the theme's windowBackground is the same colour and
+         already paints it, so a second one is pure overdraw. -->
+    <WebView
+        android:id="@+id/web"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <!-- Shown from the moment a load starts: on a phone that is slow to resolve
+         .local names, nothing else happens on screen until DNS gives up. -->
+    <ProgressBar
+        android:id="@+id/spinner"
+        style="?android:attr/progressBarStyleLarge"
+        android:layout_width="wrap_content"
+        android:layout_height="wrap_content"
+        android:layout_gravity="center"
+        android:indeterminateTint="@color/clock_accent"
+        android:visibility="gone" />
+
+    <!-- clickable/focusable so this consumes taps: without it, prodding a
+         "can't reach the clock" screen falls through to the controller
+         underneath and fires whatever button is behind the finger. -->
+    <LinearLayout
+        android:id="@+id/errorView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:orientation="vertical"
+        android:gravity="center"
+        android:padding="32dp"
+        android:clickable="true"
+        android:focusable="true"
+        android:background="@color/clock_background"
+        android:visibility="gone">
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="@string/error_title"
+            android:textColor="@color/clock_foreground"
+            android:textSize="20sp"
+            android:textStyle="bold" />
+
+        <!-- The address that failed. Without it the screen cannot tell a phone
+             on the wrong wifi from a hostname typo'd weeks ago, which is the
+             one thing the person holding it needs to know. -->
+        <TextView
+            android:id="@+id/errorAddress"
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="10dp"
+            android:textColor="@color/clock_muted"
+            android:textAlignment="center"
+            android:fontFamily="monospace"
+            android:textSize="14sp" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="14dp"
+            android:text="@string/error_body"
+            android:textColor="@color/clock_muted"
+            android:textAlignment="center"
+            android:lineSpacingMultiplier="1.2"
+            android:textSize="15sp" />
+
+        <Button
+            android:id="@+id/retryButton"
+            style="@style/Widget.HallClock.Button.Primary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="28dp"
+            android:text="@string/error_retry" />
+
+        <Button
+            android:id="@+id/changeAddressButton"
+            style="@style/Widget.HallClock.Button.Secondary"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:layout_marginTop="12dp"
+            android:text="@string/error_change_address" />
+    </LinearLayout>
+</merge>

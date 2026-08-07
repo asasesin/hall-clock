@@ -216,24 +216,43 @@ func shouldUseConfiguredAdvertisedURL(target string, r *http.Request) bool {
 	requestHost = strings.TrimSpace(requestHost)
 
 	// Local development commonly opens the app from localhost while a stale
-	// appliance hostname such as hallclock.local remains saved in config. In
-	// that case, prefer the current reachable request host so QR pairing still
-	// works for phones on the LAN.
-	if configuredHost == "hallclock.local" &&
-		(requestHost == "localhost" || requestHost == "127.0.0.1" || requestHost == "::1") {
+	// appliance hostname remains saved in config. In that case, prefer the
+	// current reachable request host so QR pairing still works for phones on
+	// the LAN. This used to match the literal "hallclock.local" only, which let
+	// a renamed Pi — or a hostname typo'd once into the setup page — slip
+	// through; that matters more now the config value outranks -public-url and
+	// nothing downstream second-guesses it.
+	if isLoopbackHost(requestHost) && !isLoopbackHost(configuredHost) {
 		return false
 	}
 
 	return true
 }
 
+// isLoopbackHost reports whether a bare host (already stripped of any port and
+// IPv6 brackets) names the machine serving the request.
+func isLoopbackHost(host string) bool {
+	if strings.EqualFold(host, "localhost") {
+		return true
+	}
+	if ip := net.ParseIP(host); ip != nil {
+		return ip.IsLoopback()
+	}
+	return false
+}
+
 func advertisedControlURL(cliURL string, configuredURL string, r *http.Request) string {
-	target, err := normalizeAdvertisedControlURL(cliURL)
-	if err == nil && target != "" {
+	// The saved setup-page URL outranks the -public-url flag: the flag is the
+	// shipped default baked into the systemd unit (http://<host>.local), while
+	// the config value is an operator's explicit runtime choice — e.g. an HTTPS
+	// domain that survives updates, which the unit's flag would otherwise mask
+	// forever.
+	target, err := normalizeAdvertisedControlURL(configuredURL)
+	if err == nil && target != "" && shouldUseConfiguredAdvertisedURL(target, r) {
 		return target
 	}
-	target, err = normalizeAdvertisedControlURL(configuredURL)
-	if err == nil && target != "" && shouldUseConfiguredAdvertisedURL(target, r) {
+	target, err = normalizeAdvertisedControlURL(cliURL)
+	if err == nil && target != "" {
 		return target
 	}
 	return requestBaseURL(r)

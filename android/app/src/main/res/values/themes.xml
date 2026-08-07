@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Parented on the platform theme rather than AppCompat/Material: the whole
+         native surface is one WebView, an error screen and two dialogs, so a
+         Material Components dependency would buy generic Material styling when
+         what this needs is the controller's own. The styles below do that
+         directly — see colors.xml for where the values come from.
+
+         #07090b matches the controller pages' theme-color, so the app frame and
+         the page background read as one surface while the WebView loads. -->
+    <style name="Theme.HallClock" parent="android:Theme.Material.NoActionBar">
+        <item name="android:windowBackground">@color/clock_background</item>
+        <!-- Ignored on API 35+, where edge-to-edge is forced and windowBackground
+             shows through the inset padding instead. Still does the work on 26–34. -->
+        <item name="android:statusBarColor">@color/clock_background</item>
+        <item name="android:navigationBarColor">@color/clock_background</item>
+        <item name="android:colorAccent">@color/clock_accent</item>
+        <item name="android:textColorPrimary">@color/clock_foreground</item>
+        <item name="android:textColorSecondary">@color/clock_muted</item>
+        <!-- Picked up by AlertDialog.Builder(Context), so both dialogs are
+             themed without either call site asking for it. -->
+        <item name="android:alertDialogTheme">@style/Theme.HallClock.Dialog</item>
+    </style>
+
+    <style name="Theme.HallClock.Dialog" parent="android:Theme.Material.Dialog.Alert">
+        <item name="android:windowBackground">@drawable/dialog_background</item>
+        <item name="android:colorAccent">@color/clock_accent</item>
+        <item name="android:textColorPrimary">@color/clock_foreground</item>
+        <item name="android:textColorSecondary">@color/clock_muted</item>
+        <item name="android:buttonBarButtonStyle">@style/Widget.HallClock.DialogButton</item>
+    </style>
+
+    <!-- textAllCaps="false" throughout: the platform button style shouts, and
+         nothing in the controller does. stateListAnimator is nulled because the
+         Material elevation lift fights a flat pill. -->
+    <style name="Widget.HallClock.Button" parent="android:Widget.Material.Button">
+        <item name="android:minHeight">56dp</item>
+        <item name="android:paddingLeft">24dp</item>
+        <item name="android:paddingRight">24dp</item>
+        <item name="android:textSize">16sp</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:letterSpacing">0</item>
+        <item name="android:stateListAnimator">@null</item>
+        <item name="android:elevation">0dp</item>
+    </style>
+
+    <style name="Widget.HallClock.Button.Primary">
+        <item name="android:background">@drawable/action_primary</item>
+        <item name="android:textColor">@color/clock_primary_text</item>
+    </style>
+
+    <style name="Widget.HallClock.Button.Secondary">
+        <item name="android:background">@drawable/action_secondary</item>
+        <item name="android:textColor">@color/clock_foreground</item>
+    </style>
+
+    <style name="Widget.HallClock.DialogButton" parent="android:Widget.Material.Button.Borderless">
+        <item name="android:textColor">@color/clock_accent</item>
+        <item name="android:textStyle">bold</item>
+        <item name="android:textAllCaps">false</item>
+        <item name="android:letterSpacing">0</item>
+    </style>
+</resources>

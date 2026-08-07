@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">Hall Clock</string>
+    <!-- The clock this app opens. The only thing to change when pointing a build
+         at a different hall, and the reason there is no setup screen: nobody is
+         asked to type an address the build already knows. A bare name, an IP, or
+         a host:port all work.
+
+         Deliberately one hall, not a list: operators belong to one hall, so a
+         phone is pointed once and never again, and a picker would be persistent
+         machinery for a one-time act. A second hall's phones enter its address
+         once from the error screen.
+
+         Prefer a Pi's static IP over its .local name if mDNS does not reach the
+         phones. Two ways that happens: Android 11 and older cannot resolve
+         .local at all, and — more likely here — the Pis are wired while the
+         phones are on Wi-Fi, so every lookup crosses the AP's multicast
+         boundary, which some APs filter. -->
+    <string name="host_default">hallclock.local</string>
+    <string name="host_dialog_title">Clock address</string>
+    <string name="host_dialog_hint">hallclock.local or 192.168.1.50</string>
+    <string name="host_dialog_ok">Connect</string>
+    <string name="host_dialog_cancel">Cancel</string>
+    <string name="host_dialog_error">Enter a name, an IP address, or a full http:// or https:// URL.</string>
+    <string name="error_title">Can\'t reach the clock</string>
+    <string name="error_address">Tried %1$s</string>
+    <!-- Short on purpose. This is read by someone standing at the front of a
+         hall with a meeting waiting, so it names the usual cause and the one
+         thing to try next, and leaves the why to whoever sets the halls up. -->
+    <string name="error_body">Check that this phone is on the hall\'s Wi-Fi. If it still fails, enter the Pi\'s IP address instead.</string>
+    <string name="error_retry">Retry</string>
+    <string name="error_change_address">Change address</string>
+    <string name="menu_reload">Reload the controller</string>
+    <string name="menu_change_address">Change address</string>
+    <string name="menu_close">Close app — the meeting keeps running on the hall display</string>
+    <string name="menu_cancel">Cancel</string>
+</resources>
