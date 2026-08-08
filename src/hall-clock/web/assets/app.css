@@ -2126,14 +2126,18 @@ textarea {
    scroll. The page has the opposite problem horizontally: a single column
    capped at 940px leaves the rest of the width empty.
 
-   So in landscape, spend the width to buy back the height: timer on the left,
-   controls stacked on the right. Keyed on orientation rather than width alone
-   because it is short viewports that are broken, not wide ones — a tablet in
-   portrait has room to spare and should keep the single column.
+   So on a short, wide viewport, spend the width to buy back the height: timer
+   on the left, controls stacked on the right.
+
+   The max-height is what keeps this honest. Only short viewports are broken —
+   a tablet in landscape (~800px) and a desktop browser (~780px) already show
+   the controls, and splitting those into columns just leaves the timer stranded
+   above a void, since it is much shorter than the cards beside it. Height, not
+   width, is the thing that was wrong.
 
    Notices and the Setup footer span both columns. Hidden notices are
    `display: none`, so they take no grid cell and the rows close up. */
-@media (orientation: landscape) and (min-width: 700px) {
+@media (orientation: landscape) and (min-width: 700px) and (max-height: 600px) {
   .control-page .phone-shell {
     width: min(100%, 1200px);
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
