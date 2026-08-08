@@ -827,10 +827,9 @@ func TestSetTimeUpdatesIdleCurrentTimer(t *testing.T) {
 }
 
 func TestAdhocPartAddsTemporaryPartWithoutSavingConfig(t *testing.T) {
-	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Pinned to a weekday: this asserts on "Opening Comments", a midweek part,
+	// and newServer picks the schedule from the real calendar.
+	srv := newMidweekServer(t, filepath.Join(t.TempDir(), "config.json"))
 	mux, err := srv.routes("")
 	if err != nil {
 		t.Fatal(err)
@@ -992,10 +991,8 @@ func TestRemovePartDisposesOfTemporaryItemsOnly(t *testing.T) {
 // start of the meeting, a talk id puts it right after that item, and either
 // way the clock's selection stays wherever it was.
 func TestAdhocPartHonoursChosenPosition(t *testing.T) {
-	srv, err := newServer(filepath.Join(t.TempDir(), "config.json"))
-	if err != nil {
-		t.Fatal(err)
-	}
+	// Pinned to a weekday, as above: the assertions name midweek parts.
+	srv := newMidweekServer(t, filepath.Join(t.TempDir(), "config.json"))
 	mux, err := srv.routes("")
 	if err != nil {
 		t.Fatal(err)
