@@ -2164,3 +2164,50 @@ textarea {
     grid-column: 2;
   }
 }
+
+/* Wide enough for three: give each card its own column and the whole
+   controller fits without scrolling. Two columns still stack the controls and
+   the schedule panel on top of each other, and their combined height is a few
+   pixels more than a phone in landscape has — so the schedule panel spills off
+   the bottom and the operator scrolls for something that was nearly visible.
+
+   Held back to 900px because below that a third column is too narrow for the
+   Start button and the item picker to stay legible; 700-900px keeps two. */
+@media (orientation: landscape) and (min-width: 900px) and (max-height: 600px) {
+  .control-page .phone-shell {
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    /* Level bottoms across the row. Worth doing only because the height gets
+       spent rather than padded: the timer fills naturally, and the two action
+       buttons grow into whatever the row is tall, which is a bigger target in
+       exactly the view where there is least room to aim. */
+    align-items: stretch;
+  }
+
+  .control-page .control-panel {
+    grid-template-rows: auto 1fr;
+  }
+
+  /* Grow into the row, but not without limit: past roughly 96px the pill's
+     999px radius turns a button into an oval, and a target that size is no
+     easier to hit than one half of it. Centre what is left over instead. */
+  .control-page .control-actions {
+    grid-auto-rows: minmax(56px, 96px);
+    align-content: center;
+  }
+
+  /* The row span exists only to close the gap under a two-column layout. With
+     one card per column there is no second row to span, and leaving it set
+     would stretch the timer to an invented height. */
+  .control-page .compact-timer {
+    grid-column: 1;
+    grid-row: auto;
+  }
+
+  .control-page .control-panel {
+    grid-column: 2;
+  }
+
+  .control-page #partsPanel {
+    grid-column: 3;
+  }
+}
