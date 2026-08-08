@@ -117,6 +117,27 @@ textarea {
   gap: 24px;
 }
 
+/* The clock centres inside the middle grid row, not the page, so the row has to
+   be symmetric or it does not look centred. The footer carries #clockValue at
+   up to 82px while the topline carries a ~39px pill, which put the countdown
+   about 30px high on a 1080p screen — small in proportion, plainly visible
+   across a hall.
+
+   Worse in clock mode, where the footer is hidden with visibility (not display)
+   and so still reserves every pixel: the time sat high with nothing below it to
+   explain why. Matching min-heights fixes both without collapsing the row —
+   display:none there would throw the clock low instead, and make it jump each
+   time the display changed mode. */
+.display-topline,
+.display-footer {
+  min-height: clamp(42px, 4.8vw, 82px);
+}
+
+/* Mirrors the footer's padding-bottom so the two rows stay the same height. */
+.display-topline {
+  padding-top: 1.5vh;
+}
+
 .device-name,
 .eyebrow,
 .meeting-type {
@@ -198,6 +219,12 @@ textarea {
   justify-content: flex-end;
 }
 
+/* Both keep their space on purpose. The footer is half of the pair holding the
+   middle row symmetric. The track sits inside the centred panel and looks like
+   dead space worth reclaiming — but collapsing it moves the clock down 22px and
+   measures *further* off centre, because digits carry no descender and their
+   ink already sits high inside the line box. The reserved track offsets that.
+   Measured on a 974px viewport: 7px off centre with it, 29px without. */
 .clock-mode .progress-track,
 .clock-mode .display-footer {
   visibility: hidden;
