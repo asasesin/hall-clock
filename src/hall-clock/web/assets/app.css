@@ -2156,15 +2156,23 @@ textarea {
    So on a short, wide viewport, spend the width to buy back the height: timer
    on the left, controls stacked on the right.
 
-   The max-height is what keeps this honest. Only short viewports are broken —
-   a tablet in landscape (~800px) and a desktop browser (~780px) already show
-   the controls, and splitting those into columns just leaves the timer stranded
-   above a void, since it is much shorter than the cards beside it. Height, not
-   width, is the thing that was wrong.
+   Two ways in, because one test cannot describe both devices this is for.
+
+   max-height catches a phone turned sideways, which is broken: ~450px of
+   height, controls below the fold.
+
+   hover:none catches a tablet, which is not broken but is wasteful — an 11in
+   Galaxy Tab is about 1280x800 in landscape, so it clears max-height and would
+   otherwise sit in one narrow column with the rest of the slab empty. Height
+   cannot separate it from a desktop browser at ~780px, and widening the height
+   test to reach it drags the desktop back in, where the split looks wrong: the
+   timer is much shorter than the cards beside it and ends up stranded above a
+   void. Input type separates them cleanly — a mouse reports hover:hover.
 
    Notices and the Setup footer span both columns. Hidden notices are
    `display: none`, so they take no grid cell and the rows close up. */
-@media (orientation: landscape) and (min-width: 700px) and (max-height: 600px) {
+@media (orientation: landscape) and (min-width: 700px) and (max-height: 600px),
+  (orientation: landscape) and (min-width: 700px) and (hover: none) {
   .control-page .phone-shell {
     width: min(100%, 1200px);
     grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
@@ -2200,9 +2208,16 @@ textarea {
 
    Held back to 900px because below that a third column is too narrow for the
    Start button and the item picker to stay legible; 700-900px keeps two. */
-@media (orientation: landscape) and (min-width: 900px) and (max-height: 600px) {
+@media (orientation: landscape) and (min-width: 900px) and (max-height: 600px),
+  (orientation: landscape) and (min-width: 900px) and (hover: none) {
   .control-page .phone-shell {
     grid-template-columns: repeat(3, minmax(0, 1fr));
+    /* A phone in landscape is filled by these three cards, so this does
+       nothing there. A tablet has twice the height they need and would
+       otherwise stack them against the top with the bottom half empty.
+       `safe` keeps the top reachable if the content ever does overflow —
+       plain `center` would clip it beyond the reach of scrolling. */
+    align-content: safe center;
     /* Level bottoms across the row. Worth doing only because the height gets
        spent rather than padded: the timer fills naturally, and the two action
        buttons grow into whatever the row is tall, which is a bigger target in
